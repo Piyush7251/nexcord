@@ -2,7 +2,8 @@
 // Supports: Fast2SMS (India), Twilio (Global), Custom Webhook, and In-App Real-Time delivery.
 
 export async function sendSms({ phone, code }) {
-  const message = `Your Nexcord verification code is: ${code}. Valid for 10 minutes. Do not share this code with anyone.`;
+  // Keep SMS short and clean (< 35 chars) so mobile carrier DLT/spam filters deliver it instantly without rejection
+  const message = `Your Nexcord code is ${code}`;
   const cleanDigits = phone.replace(/\D/g, '');
   const indianMobile = cleanDigits.length === 12 && cleanDigits.startsWith('91') 
     ? cleanDigits.slice(2) 
@@ -81,13 +82,13 @@ export async function sendSms({ phone, code }) {
     }
   }
 
-  // 3. Try Android Phone SIM Gateway (Local Wi-Fi first, then Cloud fallback)
+  // 3. Try Android Phone SIM Gateway (Cloud first for instant delivery across Wi-Fi & 4G/5G mobile data)
   const targets = [];
-  if (process.env.SMS_WEBHOOK_URL) {
-    targets.push({ url: process.env.SMS_WEBHOOK_URL, auth: process.env.SMS_WEBHOOK_AUTH });
-  }
   if (process.env.SMS_CLOUD_WEBHOOK_URL) {
-    targets.push({ url: process.env.SMS_CLOUD_WEBHOOK_URL, auth: process.env.SMS_CLOUD_WEBHOOK_AUTH });
+    targets.push({ url: process.env.SMS_CLOUD_WEBHOOK_URL, auth: process.env.SMS_CLOUD_WEBHOOK_AUTH, name: 'Cloud' });
+  }
+  if (process.env.SMS_WEBHOOK_URL) {
+    targets.push({ url: process.env.SMS_WEBHOOK_URL, auth: process.env.SMS_WEBHOOK_AUTH, name: 'Local Wi-Fi' });
   }
 
   for (const target of targets) {
