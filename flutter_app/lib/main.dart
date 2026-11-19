@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:ai_nexconn_chat_plugin/ai_nexconn_chat_plugin.dart' as nc;
+import 'package:ai_nexconn_call_plugin/ai_nexconn_call_plugin.dart' as call_nc;
 import 'package:ai_nexconn_chatui_plugin/ai_nexconn_chatui_plugin.dart';
 import 'models/models.dart';
 import 'services/api_service.dart';
@@ -93,9 +95,14 @@ class _NexcordHomeState extends State<NexcordHome> {
   // Voice state
   String? _voiceServerId;
   String? _voiceChannelId;
+  String? _voiceCallId;
   bool _micMuted = false;
   bool _deafened = false;
   bool _cameraOn = false;
+  bool _screenSharing = false;
+
+  call_nc.NCCallEngine? _callEngine;
+  bool _callSdkReady = false;
 
   Timer? _pollTimer;
 
@@ -128,6 +135,7 @@ class _NexcordHomeState extends State<NexcordHome> {
     final cfg = await _api.getConfig().catchError((_) => NexconnConfig());
     _config = cfg;
     await _sdk.initializeAndConnect(token: nexconnToken, config: cfg);
+    await _initCallSdk(cfg);
     await _syncNow();
     await _loadMessages();
     _pollTimer?.cancel();
@@ -135,6 +143,22 @@ class _NexcordHomeState extends State<NexcordHome> {
       _syncNow(silent: true);
       _loadMessages(silent: true);
     });
+  }
+
+  Future<void> _initCallSdk(NexconnConfig cfg) async {
+    try {
+      final engine = call_nc.NCCallEngine();
+      await engine.initialize(call_nc.CallInitParams(
+        appKey: cfg.appKey,
+        areaCode: cfg.areaCode == 3 ? call_nc.CallAreaCode.na : call_nc.CallAreaCode.sg,
+      ));
+      _callEngine = engine;
+      _callSdkReady = true;
+      _sdk.logVoiceAction('NCCallEngine.initialize', 'appKey=${cfg.appKey}');
+    } catch (e) {
+      _callSdkReady = false;
+      _sdk.logVoiceAction('NCCallEngine.initialize.warn', e.toString());
+    }
   }
 
   Future<void> _syncNow({bool silent = false}) async {
@@ -244,20 +268,62 @@ class _NexcordHomeState extends State<NexcordHome> {
       await _sdk.enterLiveOpenChannel(ch.openChannelId!);
     }
     if (ch.type == 'voice') {
-      await _api.joinVoice(srv.id, ch.id);
-      _sdk.logVoiceAction('NCCall.joinVoice', 'channel=${ch.name}');
-      setState(() {
-        _voiceServerId = srv.id;
-        _voiceChannelId = ch.id;
-      });
-      await _syncNow(silent: true);
+      await _joinVoiceChannel(srv, ch);
     } else {
       await _loadMessages();
     }
   }
 
+  Future<void> _joinVoiceChannel(NexcordServer srv, NexcordChannel ch) async {
+    try {
+      final res = await _api.joinVoice(srv.id, ch.id);
+      final callId = res.callId;
+      final others = (res.participants ?? <String>[]).where((id) => id != _me!.id).toList();
+
+      // Start or join the NCCallEngine call for this voice channel
+      if (_callSdkReady && _callEngine != null) {
+        try {
+          if (others.isNotEmpty) {
+            await _callEngine!.joinCall(
+              call_nc.JoinCallParams(callId: callId),
+            );
+          } else {
+            await _callEngine!.startCall(
+              call_nc.StartCallParams(
+                callId: callId,
+                calleeIds: others,
+                isGroup: true,
+                mediaType: call_nc.CallMediaType.audio,
+              ),
+            );
+          }
+          _sdk.logVoiceAction('NCCall.joinCall', 'callId=$callId channel=${ch.name}');
+        } catch (e) {
+          _sdk.logVoiceAction('NCCall.joinCall.warn', e.toString());
+        }
+      } else {
+        _sdk.logVoiceAction('NCCall.joinVoice', 'callId=$callId channel=${ch.name} (call SDK not ready)');
+      }
+
+      setState(() {
+        _voiceServerId = srv.id;
+        _voiceChannelId = ch.id;
+        _voiceCallId = callId;
+        _micMuted = false;
+        _deafened = false;
+        _cameraOn = false;
+      });
+      await _syncNow(silent: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Voice join error: $e')));
+      }
+    }
+  }
+
   Future<void> _logout() async {
     _pollTimer?.cancel();
+    await _leaveVoiceChannel();
     await _sdk.disconnect();
     await _api.logout();
     if (!mounted) return;
@@ -265,7 +331,73 @@ class _NexcordHomeState extends State<NexcordHome> {
       _me = null;
       _servers = [];
       _messages = [];
+      _voiceServerId = null;
+      _voiceChannelId = null;
+      _voiceCallId = null;
+      _callEngine = null;
+      _callSdkReady = false;
     });
+  }
+
+  Future<void> _leaveVoiceChannel() async {
+    if (_voiceCallId != null && _callSdkReady && _callEngine != null) {
+      try {
+        await _callEngine!.endCall(call_nc.EndCallParams(callId: _voiceCallId!));
+        _sdk.logVoiceAction('NCCall.endCall', 'callId=$_voiceCallId');
+      } catch (e) {
+        _sdk.logVoiceAction('NCCall.endCall.warn', e.toString());
+      }
+    }
+    if (_voiceServerId != null && _voiceChannelId != null) {
+      await _api.leaveVoice().catch((_) {});
+    }
+    setState(() {
+      _voiceServerId = null;
+      _voiceChannelId = null;
+      _voiceCallId = null;
+      _micMuted = false;
+      _deafened = false;
+      _cameraOn = false;
+      _screenSharing = false;
+    });
+  }
+
+  Future<void> _toggleVoiceMic() async {
+    setState(() => _micMuted = !_micMuted);
+    if (_voiceServerId != null) {
+      await _api.updateVoiceState(muted: _micMuted).catch((_) {});
+    }
+    if (_callSdkReady && _callEngine != null && _voiceCallId != null) {
+      try {
+        await _callEngine!.enableMicrophone(call_nc.MicParams(callId: _voiceCallId!, enabled: !_micMuted));
+        _sdk.logVoiceAction('NCCall.enableMicrophone', 'enabled=${!_micMuted}');
+      } catch (e) {
+        _sdk.logVoiceAction('NCCall.enableMicrophone.warn', e.toString());
+      }
+    }
+  }
+
+  Future<void> _toggleVoiceDeafen() async {
+    setState(() => _deafened = !_deafened);
+    if (_voiceServerId != null) {
+      await _api.updateVoiceState(deafened: _deafened).catch((_) {});
+    }
+    _sdk.logVoiceAction('NCCall.deafen', 'deafened=$_deafened');
+  }
+
+  Future<void> _toggleVoiceCamera() async {
+    setState(() => _cameraOn = !_cameraOn);
+    if (_voiceServerId != null) {
+      await _api.updateVoiceState(video: _cameraOn).catch((_) {});
+    }
+    if (_callSdkReady && _callEngine != null && _voiceCallId != null) {
+      try {
+        await _callEngine!.enableCamera(call_nc.CameraParams(callId: _voiceCallId!, enabled: _cameraOn));
+        _sdk.logVoiceAction('NCCall.enableCamera', 'enabled=$_cameraOn');
+      } catch (e) {
+        _sdk.logVoiceAction('NCCall.enableCamera.warn', e.toString());
+      }
+    }
   }
 
   @override
@@ -834,30 +966,18 @@ class _NexcordHomeState extends State<NexcordHome> {
     if (!_homeMode && srv != null && ch != null && ch.type == 'voice') {
       return VoiceHuddleView(
         channelName: ch.name,
+        callId: _voiceCallId,
         me: _me!,
         users: _users,
         participants: srv.voiceStates[ch.id] ?? [],
         micMuted: _micMuted,
         deafened: _deafened,
         cameraOn: _cameraOn,
-        onToggleMic: () async {
-          setState(() => _micMuted = !_micMuted);
-          if (_voiceServerId != null) await _api.updateVoiceState(muted: _micMuted);
-        },
-        onToggleDeafen: () async {
-          setState(() => _deafened = !_deafened);
-          if (_voiceServerId != null) await _api.updateVoiceState(deafened: _deafened);
-        },
-        onToggleCamera: () async {
-          setState(() => _cameraOn = !_cameraOn);
-          if (_voiceServerId != null) await _api.updateVoiceState(video: _cameraOn);
-        },
+        onToggleMic: _toggleVoiceMic,
+        onToggleDeafen: _toggleVoiceDeafen,
+        onToggleCamera: _toggleVoiceCamera,
         onHangup: () async {
-          await _api.leaveVoice();
-          setState(() {
-            _voiceServerId = null;
-            _voiceChannelId = null;
-          });
+          await _leaveVoiceChannel();
           await _syncNow(silent: true);
           final fallback = srv.channels.where((c) => c.type != 'voice').firstOrNull;
           if (fallback != null) _selectChannel(srv, fallback);

@@ -900,11 +900,17 @@ app.post('/api/voice/join', auth, wrap(async (req, res) => {
   leaveVoice(req.user.id);
   voice[serverId] ||= {};
   const v = (voice[serverId][channelId] ||= { callId: '', members: {} });
+
+  // Generate a shared callId for the voice channel when the first member joins
+  if (!v.callId) {
+    v.callId = `vc_${serverId}_${channelId}_${Date.now()}`;
+  }
+
   const others = Object.keys(v.members);
   v.members[req.user.id] = { muted: false, deafened: false, video: false, streaming: false, joinedAt: Date.now() };
   userVoice[req.user.id] = { serverId, channelId };
   notifyServer(s);
-  res.json({ callId: others.length ? v.callId : '', participants: others });
+  res.json({ callId: v.callId, participants: others });
 }));
 
 app.post('/api/voice/call', auth, (req, res) => {

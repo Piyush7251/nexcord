@@ -154,6 +154,20 @@ class VoiceParticipant {
       );
 }
 
+class VoiceJoinResult {
+  final String callId;
+  final List<String> participants;
+
+  VoiceJoinResult({required this.callId, required this.participants});
+
+  factory VoiceJoinResult.fromJson(Map<String, dynamic> j) => VoiceJoinResult(
+        callId: j['callId']?.toString() ?? '',
+        participants: (j['participants'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toList(),
+      );
+}
+
 class ServerRole {
   final String id;
   final String name;

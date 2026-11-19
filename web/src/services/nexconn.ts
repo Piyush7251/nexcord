@@ -669,15 +669,40 @@ class NexconnService {
     });
   }
 
+  getBroadcastStream(): MediaStream {
+    const stream = new MediaStream();
+    if (this.screenStream) {
+      this.screenStream.getVideoTracks().forEach((t) => {
+        if (t.readyState === 'live') stream.addTrack(t);
+      });
+    }
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((t) => {
+        if (t.readyState === 'live') {
+          if (t.kind === 'video' && stream.getVideoTracks().length > 0) return;
+          stream.addTrack(t);
+        }
+      });
+    }
+    return stream;
+  }
+
   async connectToPeer(remoteUserId: string, callId: string) {
     if (typeof window === 'undefined' || !window.RTCPeerConnection) return;
     if (this.peers.has(remoteUserId)) return;
 
     try {
       this.unlockAudio();
-      let local = this.getLocalStream();
-      if (!local || local.getAudioTracks().length === 0) {
-        local = await this.ensureLocalMedia(true, false);
+      let stream = this.getBroadcastStream();
+      if (stream.getAudioTracks().length === 0) {
+        const mic = await this.ensureLocalMedia(true, false);
+        if (mic) {
+          mic.getAudioTracks().forEach((t) => {
+            if (t.readyState === 'live' && !stream.getAudioTracks().some((x) => x.id === t.id)) {
+              stream.addTrack(t);
+            }
+          });
+        }
       }
 
       const pc = new RTCPeerConnection({
@@ -689,17 +714,19 @@ class NexconnService {
       });
       this.peers.set(remoteUserId, pc);
 
-      if (local) {
-        local.getTracks().forEach((track) => pc.addTrack(track, local!));
-      }
+      stream.getTracks().forEach((track) => {
+        try {
+          pc.addTrack(track, stream);
+        } catch {}
+      });
 
       pc.ontrack = (event) => {
-        const stream = event.streams[0] || new MediaStream([event.track]);
-        this.remoteStreams.set(remoteUserId, stream);
-        this.playRemoteAudio(remoteUserId, stream);
+        const remoteStream = event.streams[0] || new MediaStream([event.track]);
+        this.remoteStreams.set(remoteUserId, remoteStream);
+        this.playRemoteAudio(remoteUserId, remoteStream);
         const el = this.remoteVideoElements.get(remoteUserId);
         if (el) {
-          el.srcObject = stream;
+          el.srcObject = remoteStream;
           el.play().catch(() => {});
         }
       };
@@ -726,9 +753,16 @@ class NexconnService {
       this.unlockAudio();
       let pc = this.peers.get(fromUserId);
       if (!pc) {
-        let local = this.getLocalStream();
-        if (!local || local.getAudioTracks().length === 0) {
-          local = await this.ensureLocalMedia(true, false);
+        let stream = this.getBroadcastStream();
+        if (stream.getAudioTracks().length === 0) {
+          const mic = await this.ensureLocalMedia(true, false);
+          if (mic) {
+            mic.getAudioTracks().forEach((t) => {
+              if (t.readyState === 'live' && !stream.getAudioTracks().some((x) => x.id === t.id)) {
+                stream.addTrack(t);
+              }
+            });
+          }
         }
 
         const newPc = new RTCPeerConnection({
@@ -741,17 +775,19 @@ class NexconnService {
         this.peers.set(fromUserId, newPc);
         pc = newPc;
 
-        if (local) {
-          local.getTracks().forEach((track) => newPc.addTrack(track, local!));
-        }
+        stream.getTracks().forEach((track) => {
+          try {
+            newPc.addTrack(track, stream);
+          } catch {}
+        });
 
         newPc.ontrack = (event) => {
-          const stream = event.streams[0] || new MediaStream([event.track]);
-          this.remoteStreams.set(fromUserId, stream);
-          this.playRemoteAudio(fromUserId, stream);
+          const remoteStream = event.streams[0] || new MediaStream([event.track]);
+          this.remoteStreams.set(fromUserId, remoteStream);
+          this.playRemoteAudio(fromUserId, remoteStream);
           const el = this.remoteVideoElements.get(fromUserId);
           if (el) {
-            el.srcObject = stream;
+            el.srcObject = remoteStream;
             el.play().catch(() => {});
           }
         };
@@ -763,13 +799,20 @@ class NexconnService {
         };
       }
 
-      // Ensure all current local tracks are present on pc
-      const currentLocal = this.getLocalStream();
-      if (currentLocal && pc) {
+      // Ensure all current outgoing tracks (screen & audio) are present on pc
+      const activeStream = this.getBroadcastStream();
+      if (pc && activeStream) {
         const senders = pc.getSenders();
-        currentLocal.getTracks().forEach((t) => {
-          if (!senders.some((s) => s.track === t)) {
-            pc!.addTrack(t, currentLocal!);
+        activeStream.getTracks().forEach((t) => {
+          const sender = senders.find((s) => s.track?.kind === t.kind);
+          if (sender) {
+            if (sender.track !== t) {
+              sender.replaceTrack(t).catch(() => {});
+            }
+          } else {
+            try {
+              pc!.addTrack(t, activeStream);
+            } catch {}
           }
         });
       }
@@ -822,19 +865,27 @@ class NexconnService {
       this.screenStream.getTracks().forEach((t) => t.stop());
     }
     this.screenStream = stream;
-    if (stream) {
-      this.peers.forEach((pc) => {
-        stream.getTracks().forEach((track) => {
-          const sender = pc.getSenders().find((s) => s.track?.kind === track.kind);
-          if (sender) {
-            sender.replaceTrack(track).catch(() => {});
-          } else {
-            pc.addTrack(track, stream);
-          }
-        });
-      });
-      this.log('call', 'ScreenStream.set', 'Screen stream active for peers', 'ok');
-    }
+    const videoTrack = stream?.getVideoTracks()[0] || null;
+
+    this.peers.forEach((pc) => {
+      const senders = pc.getSenders();
+      const videoSender = senders.find((s) => s.track?.kind === 'video');
+      if (videoTrack) {
+        if (videoSender) {
+          videoSender.replaceTrack(videoTrack).catch(() => {});
+        } else {
+          try {
+            pc.addTrack(videoTrack, stream!);
+          } catch {}
+        }
+      } else {
+        const camTrack = this.localStream?.getVideoTracks().find((t) => t.readyState === 'live') || null;
+        if (videoSender) {
+          videoSender.replaceTrack(camTrack).catch(() => {});
+        }
+      }
+    });
+    this.log('call', 'ScreenStream.set', `Screen stream active: ${!!stream}`, 'ok');
   }
 
   getRemoteStream(userId: string): MediaStream | undefined {
@@ -843,15 +894,60 @@ class NexconnService {
 
   async toggleScreenShare(enable: boolean): Promise<MediaStream | null> {
     if (!enable) {
-      this.screenStream?.getTracks().forEach((t) => t.stop());
-      this.screenStream = null;
+      this.setScreenStream(null);
       this.log('call', 'ScreenShare.stop', 'Stopped screen sharing', 'info');
       return null;
     }
     try {
-      this.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      this.log('call', 'ScreenShare.start', 'Started screen capture stream', 'ok');
-      return this.screenStream;
+      let stream: MediaStream | null = null;
+      const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
+        try {
+          if (isMobile) {
+            // Android Chrome: never request audio: true as it causes immediate rejection
+            stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          } else {
+            try {
+              stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+            } catch {
+              stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            }
+          }
+        } catch (displayErr) {
+          console.warn('Native getDisplayMedia rejected or unsupported on this device', displayErr);
+          if (isMobile) {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+              });
+            } catch (camErr) {
+              console.warn('Mobile camera fallback failed', camErr);
+            }
+          }
+        }
+      } else if (isMobile) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          });
+        } catch (camErr) {
+          console.warn('Mobile camera fallback failed', camErr);
+        }
+      }
+
+      if (stream) {
+        this.setScreenStream(stream);
+        const vt = stream.getVideoTracks()[0];
+        if (vt) {
+          vt.onended = () => {
+            this.setScreenStream(null);
+          };
+        }
+        this.log('call', 'ScreenShare.start', 'Started screen capture stream', 'ok');
+        return stream;
+      }
+      return null;
     } catch (e: any) {
       this.log('call', 'ScreenShare.denied', e?.message || 'Permission dismissed', 'warn');
       return null;

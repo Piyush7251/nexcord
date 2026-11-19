@@ -269,8 +269,10 @@ class ApiService {
         if (text != null) 'text': text,
       });
 
-  Future<void> joinVoice(String serverId, String channelId) =>
-      _req('POST', '/api/voice/join', {'serverId': serverId, 'channelId': channelId});
+  Future<VoiceJoinResult> joinVoice(String serverId, String channelId) async {
+    final j = await _req('POST', '/api/voice/join', {'serverId': serverId, 'channelId': channelId});
+    return VoiceJoinResult.fromJson(j as Map<String, dynamic>);
+  }
 
   Future<void> updateVoiceState({bool? muted, bool? deafened, bool? video, bool? streaming}) =>
       _req('POST', '/api/voice/state', {
@@ -281,6 +283,9 @@ class ApiService {
       });
 
   Future<void> leaveVoice() => _req('POST', '/api/voice/leave');
+
+  Future<void> setVoiceCallId(String callId) =>
+      _req('POST', '/api/voice/call', {'callId': callId});
 
   Future<void> requestFriend(String username) => _req('POST', '/api/friends/request', {'username': username});
   Future<void> acceptFriend(String userId) => _req('POST', '/api/friends/accept', {'userId': userId});

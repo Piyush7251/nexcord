@@ -3,6 +3,7 @@ import '../models/models.dart';
 
 class VoiceHuddleView extends StatelessWidget {
   final String channelName;
+  final String? callId;
   final NexcordUser me;
   final Map<String, NexcordUser> users;
   final List<VoiceParticipant> participants;
@@ -17,6 +18,7 @@ class VoiceHuddleView extends StatelessWidget {
   const VoiceHuddleView({
     super.key,
     required this.channelName,
+    this.callId,
     required this.me,
     required this.users,
     required this.participants,
@@ -42,9 +44,20 @@ class VoiceHuddleView extends StatelessWidget {
               const Icon(Icons.circle, size: 10, color: Color(0xFF57F287)),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  'Voice Connected — $channelName',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Voice Connected — $channelName',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    if (callId != null)
+                      Text(
+                        'Call: ${callId!.substring(0, 12)}...',
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF949BA4)),
+                      ),
+                  ],
                 ),
               ),
               Container(
@@ -54,7 +67,7 @@ class VoiceHuddleView extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: const Color(0x665865F2)),
                 ),
-                child: const Text('Nexconn Call', style: TextStyle(fontSize: 10.5, color: Color(0xFFB8C2FF))),
+                child: const Text('NCCallEngine', style: TextStyle(fontSize: 10.5, color: Color(0xFFB8C2FF))),
               ),
             ],
           ),

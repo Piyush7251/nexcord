@@ -28,7 +28,7 @@ interface LiveStreamStageProps {
   onSendMessage: (text: string) => void;
   onSendQuickChat: (preset: QuickChatPreset, zone?: string) => void;
   onSendHype: (emoji: string, text?: string) => void;
-  onStartLive: (payload: { title: string; mode: string; streamUrl: string }) => void;
+  onStartLive: (payload: { title: string; mode: string; streamUrl: string; callId?: string }) => void;
   onStopLive: () => void;
 }
 
@@ -275,11 +275,12 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
     setIsCapturing(true);
     try {
       let stream: MediaStream | null = null;
+      const isMobile = isMobileDevice;
 
       // 1. Try native getDisplayMedia if supported
       if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
         try {
-          if (isMobileDevice) {
+          if (isMobile) {
             // Android Chrome: never request audio: true as it causes immediate rejection
             stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
           } else {
@@ -290,23 +291,41 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
             }
           }
         } catch (captureErr: any) {
-          console.warn('Native getDisplayMedia was rejected or unsupported on this device:', captureErr);
-          if (isMobileDevice) {
-            // Automatically fall back to the live canvas stream on mobile so sharing always succeeds
-            stream = null;
+          console.warn('Native getDisplayMedia error:', captureErr);
+          if (captureErr?.name === 'NotAllowedError' || captureErr?.name === 'AbortError') {
+            setLiveError('Screen share cancelled. Tap "Go Live" or use Camera below.');
+            setIsCapturing(false);
+            return;
+          }
+          if (isMobile) {
+            // Mobile browser/webview without display capture permission: fallback to camera
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: true,
+              });
+            } catch {
+              stream = startCanvasScreenShare();
+            }
           } else {
             throw captureErr;
           }
         }
+      } else if (isMobile) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: true,
+          });
+        } catch {
+          stream = startCanvasScreenShare();
+        }
+      } else {
+        throw new Error('Screen sharing is not supported by your browser.');
       }
 
-      // 2. If mobile device or unsupported browser, use tactical broadcast stream
       if (!stream) {
-        if (isMobileDevice) {
-          stream = startCanvasScreenShare();
-        } else {
-          throw new Error('Screen sharing is not supported by your browser.');
-        }
+        stream = startCanvasScreenShare();
       }
 
       localBroadcastStream.current?.getTracks().forEach((t) => t.stop());
@@ -326,18 +345,16 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
         localVideoRef.current.play().catch(() => {});
       }
 
+      const activeCallId = `live_${channel.id}_${Date.now()}`;
       onStartLive({
         title: `${me.displayName}'s Screen Share`,
         mode: 'webrtc',
         streamUrl: '',
+        callId: activeCallId,
       });
     } catch (err: any) {
-      console.warn('Screen share permission error:', err);
-      if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
-        setLiveError('Screen share cancelled. You can also tap "Go Live (Camera)".');
-      } else {
-        setLiveError(err?.message || 'Could not start screen sharing.');
-      }
+      console.warn('Screen share error:', err);
+      setLiveError(err?.message || 'Could not start screen sharing.');
     } finally {
       setIsCapturing(false);
     }
@@ -375,10 +392,12 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
         localVideoRef.current.play().catch(() => {});
       }
 
+      const activeCallId = `live_${channel.id}_${Date.now()}`;
       onStartLive({
         title: isMobileDevice ? `${me.displayName}'s Mobile Live` : `${me.displayName}'s Camera Stream`,
         mode: 'webrtc',
         streamUrl: '',
+        callId: activeCallId,
       });
     } catch (err: any) {
       console.warn('Camera permission error:', err);
@@ -511,13 +530,20 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
                   type="button"
                   className="nc-btn xs secondary"
                   onClick={() => setShowBroadcastModal(true)}
+                  title="Switch broadcast source"
                 >
                   <Monitor size={13} />
-                  <span>Switch<span className="desktop-only"> Source</span></span>
+                  <span className="desktop-only">Switch Source</span>
                 </button>
                 {canStop && (
-                  <button type="button" className="nc-btn xs danger" onClick={handleStopLive}>
-                    <span>End<span className="desktop-only"> Stream</span></span>
+                  <button
+                    type="button"
+                    className="nc-btn xs danger"
+                    onClick={handleStopLive}
+                    title="End stream"
+                  >
+                    <X size={13} />
+                    <span className="desktop-only">End Stream</span>
                   </button>
                 )}
               </>
@@ -621,7 +647,6 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
               autoPlay
               playsInline
               muted={isStreamer || isBroadcastingLocally}
-              controls
               className="nc-live-video"
             />
           ) : null}
@@ -686,20 +711,22 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
           )}
         </div>
 
-        {/* Hype Reaction Dock (Bottom-Left over video on desktop, dedicated bottom bar on mobile) */}
-        <div className="nc-hype-dock">
-          {['🔥', '⚡', '👑', '💯', '🎯', '💜'].map((em) => (
-            <button
-              key={em}
-              type="button"
-              className="nc-hype-btn"
-              onClick={() => onSendHype(em)}
-              title={`Send ${em} hype burst to all spectators`}
-            >
-              {em}
-            </button>
-          ))}
-        </div>
+        {/* Hype Reaction Dock (only rendered when live stream is actively broadcasting) */}
+        {isLiveActive && (
+          <div className="nc-hype-dock">
+            {['🔥', '⚡', '👑', '💯', '🎯', '💜'].map((em) => (
+              <button
+                key={em}
+                type="button"
+                className="nc-hype-btn"
+                onClick={() => onSendHype(em)}
+                title={`Send ${em} hype burst to all spectators`}
+              >
+                {em}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Right Spectator Chatroom Panel */}
