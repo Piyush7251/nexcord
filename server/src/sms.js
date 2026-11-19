@@ -81,33 +81,43 @@ export async function sendSms({ phone, code }) {
     }
   }
 
-  // 3. Try Android Phone SIM Gateway / Webhook (e.g. capcom6/android-sms-gateway)
-  const webhookUrl = process.env.SMS_WEBHOOK_URL;
-  if (webhookUrl) {
+  // 3. Try Android Phone SIM Gateway (Local Wi-Fi first, then Cloud fallback)
+  const targets = [];
+  if (process.env.SMS_WEBHOOK_URL) {
+    targets.push({ url: process.env.SMS_WEBHOOK_URL, auth: process.env.SMS_WEBHOOK_AUTH });
+  }
+  if (process.env.SMS_CLOUD_WEBHOOK_URL) {
+    targets.push({ url: process.env.SMS_CLOUD_WEBHOOK_URL, auth: process.env.SMS_CLOUD_WEBHOOK_AUTH });
+  }
+
+  for (const target of targets) {
     try {
       const headers = { 'Content-Type': 'application/json' };
-      if (process.env.SMS_WEBHOOK_AUTH) {
-        headers['Authorization'] = process.env.SMS_WEBHOOK_AUTH.trim();
-      }
-      const res = await fetch(webhookUrl, {
+      if (target.auth) headers['Authorization'] = target.auth.trim();
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(target.url, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           phoneNumbers: [phone],
-          phone,
-          to: phone,
           message,
-          code,
-          timestamp: Date.now(),
         }),
+        signal: ctrl.signal,
       });
-      console.log(`[SMS Gateway] Dispatched to Android SIM Gateway (${webhookUrl}) status: ${res.status}`);
-      results.provider = 'Android SIM Gateway';
-      results.deliveredToCarrier = res.ok || res.status === 200 || res.status === 201;
-      results.details = `Delivered through Android SIM Gateway (${res.status})`;
-      return results;
+      clearTimeout(t);
+      if (res.ok || res.status === 200 || res.status === 201 || res.status === 202) {
+        console.log(`[SMS Gateway] Dispatched to Android SIM Gateway (${target.url}) status: ${res.status}`);
+        results.provider = 'Android SIM Gateway';
+        results.deliveredToCarrier = true;
+        results.details = `Delivered through Android SIM Gateway (${res.status})`;
+        return results;
+      } else {
+        const errText = await res.text();
+        console.warn(`[SMS Gateway] Android SIM Gateway returned status ${res.status}:`, errText);
+      }
     } catch (err) {
-      console.warn(`[SMS Gateway] Android SIM Gateway network error:`, err.message);
+      console.warn(`[SMS Gateway] Android SIM Gateway error for ${target.url}:`, err.message);
     }
   }
 
