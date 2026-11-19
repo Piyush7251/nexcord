@@ -168,15 +168,26 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
     onStopLive();
   };
 
+  const isMobileDevice = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
   const handleStartScreenShare = async () => {
     setLiveError(null);
     setIsCapturing(true);
     try {
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+        throw new Error('BROWSER_SCREENSHARE_UNSUPPORTED');
+      }
+
       let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      } catch {
+      // On mobile devices, never request display audio because Android Chrome immediately rejects it
+      if (isMobileDevice) {
         stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      } else {
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        } catch {
+          stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        }
       }
       localBroadcastStream.current?.getTracks().forEach((t) => t.stop());
       localBroadcastStream.current = stream;
@@ -202,6 +213,20 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
       });
     } catch (err: any) {
       console.warn('Screen share permission error:', err);
+      // On mobile browsers where OS screen capture is restricted by Apple/Android WebKit sandbox
+      if (
+        isMobileDevice &&
+        (err?.message === 'BROWSER_SCREENSHARE_UNSUPPORTED' ||
+          err?.name === 'NotSupportedError' ||
+          err?.name === 'TypeError')
+      ) {
+        setLiveError('Mobile browser restricts OS screen capture. Switching to Mobile Camera Live Stream...');
+        setTimeout(() => {
+          handleStartCamera();
+        }, 1200);
+        return;
+      }
+
       if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
         setLiveError('Screen share cancelled or permission denied.');
       } else {
@@ -218,7 +243,12 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
     try {
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: isMobileDevice
+            ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+            : true,
+          audio: true,
+        });
       } catch {
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
       }
@@ -240,7 +270,7 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
       }
 
       onStartLive({
-        title: `${me.displayName}'s Camera Stream`,
+        title: isMobileDevice ? `${me.displayName}'s Mobile Live` : `${me.displayName}'s Camera Stream`,
         mode: 'webrtc',
         streamUrl: '',
       });
@@ -431,7 +461,7 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 18 }}>
+              <div className="nc-live-start-btns">
                 <button
                   type="button"
                   className="nc-btn primary"
@@ -443,12 +473,12 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
                 </button>
                 <button
                   type="button"
-                  className="nc-btn secondary"
+                  className="nc-btn green"
                   onClick={handleStartCamera}
                   disabled={isCapturing}
                 >
                   <Video size={16} />
-                  <span>{isCapturing ? 'Starting...' : 'Share Camera'}</span>
+                  <span>{isCapturing ? 'Starting...' : isMobileDevice ? 'Go Live (Mobile Camera)' : 'Share Camera'}</span>
                 </button>
               </div>
             </div>

@@ -1581,6 +1581,14 @@
   gap: 10px;
 }
 
+.nc-live-start-btns {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
 /* Danmaku Flying Bullet Chat */
 .nc-danmaku-layer {
   position: absolute;
@@ -3586,6 +3594,19 @@
 
   .nc-live-controls::-webkit-scrollbar {
     display: none;
+  }
+
+  .nc-live-start-btns {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .nc-live-start-btns .nc-btn {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 14px;
+    justify-content: center;
   }
 
   /* Mobile Bottom Sheet Modals */
