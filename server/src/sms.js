@@ -81,22 +81,33 @@ export async function sendSms({ phone, code }) {
     }
   }
 
-  // 3. Try Generic Webhook (e.g. Zapier, Make, custom gateway)
+  // 3. Try Android Phone SIM Gateway / Webhook (e.g. capcom6/android-sms-gateway)
   const webhookUrl = process.env.SMS_WEBHOOK_URL;
   if (webhookUrl) {
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (process.env.SMS_WEBHOOK_AUTH) {
+        headers['Authorization'] = process.env.SMS_WEBHOOK_AUTH.trim();
+      }
       const res = await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, code, message, timestamp: Date.now() }),
+        headers,
+        body: JSON.stringify({
+          phoneNumbers: [phone],
+          phone,
+          to: phone,
+          message,
+          code,
+          timestamp: Date.now(),
+        }),
       });
-      console.log(`[SMS Gateway] Custom webhook dispatched to ${webhookUrl} (status: ${res.status})`);
-      results.provider = 'Webhook';
-      results.deliveredToCarrier = res.ok;
-      results.details = `Forwarded to SMS webhook (${res.status})`;
+      console.log(`[SMS Gateway] Dispatched to Android SIM Gateway (${webhookUrl}) status: ${res.status}`);
+      results.provider = 'Android SIM Gateway';
+      results.deliveredToCarrier = res.ok || res.status === 200 || res.status === 201;
+      results.details = `Delivered through Android SIM Gateway (${res.status})`;
       return results;
     } catch (err) {
-      console.warn(`[SMS Gateway] Webhook error:`, err.message);
+      console.warn(`[SMS Gateway] Android SIM Gateway network error:`, err.message);
     }
   }
 
