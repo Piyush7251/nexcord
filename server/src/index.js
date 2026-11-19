@@ -163,9 +163,9 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, nexconnConfigured: nx
 app.get('/api/config', (_req, res) => res.json(nx.getConfig()));
 
 app.post('/api/config/credentials', wrap(async (req, res) => {
-  const { appKey, appSecret, apiHost, areaCode } = req.body || {};
+  const { appKey, appSecret, apiHost, areaCode, fast2smsApiKey } = req.body || {};
   if (!appKey || !appSecret) throw new HttpError(400, 'Both App Key and App Secret are required');
-  const cfg = nx.setRuntimeConfig({ appKey, appSecret, apiHost, areaCode });
+  const cfg = nx.setRuntimeConfig({ appKey, appSecret, apiHost, areaCode, fast2smsApiKey });
 
   // Provision current user + servers if possible
   const authHeader = req.headers.authorization || '';
@@ -234,9 +234,10 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
     phone: clean,
     provider: smsResult.provider,
     deliveredToCarrier: smsResult.deliveredToCarrier,
+    devOtp: smsResult.deliveredToCarrier ? undefined : code,
     message: smsResult.deliveredToCarrier
-      ? `SMS sent via ${smsResult.provider} to ${clean}`
-      : `Verification code sent to ${clean}`,
+      ? `SMS sent via Fast2SMS to ${clean}`
+      : (smsResult.details ? `Fast2SMS: ${smsResult.details}` : `Verification code sent to ${clean}`),
   });
 }));
 

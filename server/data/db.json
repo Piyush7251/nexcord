@@ -12,7 +12,7 @@
    "createdAt": 1795011803429,
    "salt": "",
    "hash": "",
-   "nexconnToken": "demo_token_ucCjQ1J12rhLS"
+   "nexconnToken": "f/FBLuz4NC4ri0FPyMcX34uttJ+BSXQHYCI0aotgFmvJsJUdve6QKw==@ygmx.sg.rongnav.com;ygmx.sg.rongcfg.com"
   },
   "ut9jSDzpldsO7": {
    "id": "ut9jSDzpldsO7",
@@ -118,7 +118,8 @@
   "e5d5c2afa6fb1bed5ae6546c7c897135277242943951087b": "uUKIVZOhh9tuu",
   "ad64de8b8bc2d96a3813b40853ec410a3a127d4c4b955c69": "uj5i2c3LGofPb",
   "016c3fe07d043863e21a4bba286d9dce93b60f6112d841c8": "ujscMKtDfaVyZ",
-  "84e8150773631573266ee51b7599ccfc01de6bb8a032a750": "ujwCRFXXprFA5"
+  "84e8150773631573266ee51b7599ccfc01de6bb8a032a750": "ujwCRFXXprFA5",
+  "b29e47cb003526385d1c80139f7ccfae701d5184db449183": "ucCjQ1J12rhLS"
  },
  "servers": {
   "ggVGFQTpTFEa": {

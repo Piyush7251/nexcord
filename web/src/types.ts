@@ -159,6 +159,7 @@ export interface NexconnConfig {
   areaCode: number;
   apiHost: string;
   configured: boolean;
+  fast2smsConfigured: boolean;
 }
 
 export type QuickChatCategory = 'tactical' | 'comms' | 'hype' | 'status';

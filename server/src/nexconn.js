@@ -29,12 +29,14 @@ export function getConfig() {
     areaCode: Number(process.env.NEXCONN_AREA_CODE || 2),
     apiHost: process.env.NEXCONN_API_HOST || 'api.sg-light-api.com',
     configured: isConfigured(),
+    fast2smsConfigured: Boolean(process.env.FAST2SMS_API_KEY?.trim()),
   };
 }
 
-export function setRuntimeConfig({ appKey, appSecret, apiHost, areaCode }) {
+export function setRuntimeConfig({ appKey, appSecret, apiHost, areaCode, fast2smsApiKey }) {
   if (appKey !== undefined) process.env.NEXCONN_APP_KEY = String(appKey).trim();
   if (appSecret !== undefined) process.env.NEXCONN_APP_SECRET = String(appSecret).trim();
+  if (fast2smsApiKey !== undefined) process.env.FAST2SMS_API_KEY = String(fast2smsApiKey).trim();
   if (apiHost !== undefined && String(apiHost).trim()) {
     const cleanHost = String(apiHost).trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
     process.env.NEXCONN_API_HOST = cleanHost;
@@ -46,6 +48,7 @@ export function setRuntimeConfig({ appKey, appSecret, apiHost, areaCode }) {
   const envLines = [
     `NEXCONN_APP_KEY=${process.env.NEXCONN_APP_KEY || ''}`,
     `NEXCONN_APP_SECRET=${process.env.NEXCONN_APP_SECRET || ''}`,
+    `FAST2SMS_API_KEY=${process.env.FAST2SMS_API_KEY || ''}`,
     `NEXCONN_API_HOST=${process.env.NEXCONN_API_HOST || 'api.sg-light-api.com'}`,
     `NEXCONN_API_HOST_BACKUP=${process.env.NEXCONN_API_HOST_BACKUP || 'api-b.sg-light-api.com'}`,
     `NEXCONN_AREA_CODE=${process.env.NEXCONN_AREA_CODE || '2'}`,

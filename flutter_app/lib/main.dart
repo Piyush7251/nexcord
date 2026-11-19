@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:ai_nexconn_chat_plugin/ai_nexconn_chat_plugin.dart' as nc;
-import 'package:ai_nexconn_call_plugin/ai_nexconn_call_plugin.dart' as call_nc;
+import 'services/call_engine_stub.dart' as call_nc;
 import 'package:ai_nexconn_chatui_plugin/ai_nexconn_chatui_plugin.dart';
 import 'models/models.dart';
 import 'services/api_service.dart';
@@ -349,7 +349,7 @@ class _NexcordHomeState extends State<NexcordHome> {
       }
     }
     if (_voiceServerId != null && _voiceChannelId != null) {
-      await _api.leaveVoice().catch((_) {});
+      await _api.leaveVoice().catchError((_) {});
     }
     setState(() {
       _voiceServerId = null;
@@ -365,7 +365,7 @@ class _NexcordHomeState extends State<NexcordHome> {
   Future<void> _toggleVoiceMic() async {
     setState(() => _micMuted = !_micMuted);
     if (_voiceServerId != null) {
-      await _api.updateVoiceState(muted: _micMuted).catch((_) {});
+      await _api.updateVoiceState(muted: _micMuted).catchError((_) {});
     }
     if (_callSdkReady && _callEngine != null && _voiceCallId != null) {
       try {
@@ -380,7 +380,7 @@ class _NexcordHomeState extends State<NexcordHome> {
   Future<void> _toggleVoiceDeafen() async {
     setState(() => _deafened = !_deafened);
     if (_voiceServerId != null) {
-      await _api.updateVoiceState(deafened: _deafened).catch((_) {});
+      await _api.updateVoiceState(deafened: _deafened).catchError((_) {});
     }
     _sdk.logVoiceAction('NCCall.deafen', 'deafened=$_deafened');
   }
@@ -388,7 +388,7 @@ class _NexcordHomeState extends State<NexcordHome> {
   Future<void> _toggleVoiceCamera() async {
     setState(() => _cameraOn = !_cameraOn);
     if (_voiceServerId != null) {
-      await _api.updateVoiceState(video: _cameraOn).catch((_) {});
+      await _api.updateVoiceState(video: _cameraOn).catchError((_) {});
     }
     if (_callSdkReady && _callEngine != null && _voiceCallId != null) {
       try {

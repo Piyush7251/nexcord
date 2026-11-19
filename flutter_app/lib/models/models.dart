@@ -361,12 +361,14 @@ class NexconnConfig {
   final int areaCode;
   final String apiHost;
   final bool configured;
+  final bool fast2smsConfigured;
 
   NexconnConfig({
     this.appKey = '',
     this.areaCode = 2,
     this.apiHost = 'api.sg-light-api.com',
     this.configured = false,
+    this.fast2smsConfigured = false,
   });
 
   factory NexconnConfig.fromJson(Map<String, dynamic> j) => NexconnConfig(
@@ -374,6 +376,7 @@ class NexconnConfig {
         areaCode: (j['areaCode'] as num?)?.toInt() ?? 2,
         apiHost: j['apiHost']?.toString() ?? 'api.sg-light-api.com',
         configured: j['configured'] == true,
+        fast2smsConfigured: j['fast2smsConfigured'] == true,
       );
 }
 

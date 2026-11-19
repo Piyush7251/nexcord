@@ -114,12 +114,14 @@ class ApiService {
     required String appSecret,
     required String apiHost,
     required int areaCode,
+    String fast2smsApiKey = '',
   }) =>
       _req('POST', '/api/config/credentials', {
         'appKey': appKey,
         'appSecret': appSecret,
         'apiHost': apiHost,
         'areaCode': areaCode,
+        if (fast2smsApiKey.isNotEmpty) 'fast2smsApiKey': fast2smsApiKey,
       });
 
   Future<({String session, NexcordUser user, String nexconnToken})> demoLogin([String? displayName]) async {

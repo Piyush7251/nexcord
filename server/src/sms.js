@@ -1,28 +1,50 @@
-// Multi-provider SMS Engine for Nexcord
-// Supports: Fast2SMS (India), Twilio (Global), Custom Webhook, and In-App Real-Time delivery.
+// Fast2SMS Delivery Engine for Nexcord Mobile OTP Verification
 
 export async function sendSms({ phone, code }) {
-  // Keep SMS short and clean (< 35 chars) so mobile carrier DLT/spam filters deliver it instantly without rejection
-  const message = `Your Nexcord code is ${code}`;
   const cleanDigits = phone.replace(/\D/g, '');
-  const indianMobile = cleanDigits.length === 12 && cleanDigits.startsWith('91') 
-    ? cleanDigits.slice(2) 
+  const indianMobile = cleanDigits.length === 12 && cleanDigits.startsWith('91')
+    ? cleanDigits.slice(2)
     : cleanDigits.length === 10 ? cleanDigits : '';
 
   const results = {
-    provider: 'in-app-realtime',
+    provider: 'Fast2SMS',
     deliveredToCarrier: false,
     details: '',
   };
 
-  // 1. Try Fast2SMS (Popular in India for instantaneous OTP delivery)
-  const fast2SmsKey = process.env.FAST2SMS_API_KEY;
+  const fast2SmsKey = (process.env.FAST2SMS_API_KEY || '').trim();
+
   if (fast2SmsKey && indianMobile) {
+    // 1. Try Quick SMS API route (route: 'q') — enabled on Fast2SMS dashboard
     try {
-      const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+      const qRes = await fetch('https://www.fast2sms.com/dev/bulkV2', {
         method: 'POST',
         headers: {
-          'authorization': fast2SmsKey.trim(),
+          authorization: fast2SmsKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          route: 'q',
+          message: `Your Nexcord verification code is ${code}`,
+          numbers: indianMobile,
+        }),
+      });
+
+      const qData = await qRes.json();
+      if (qData && qData.return) {
+        console.log(`[Fast2SMS] Quick SMS successfully dispatched to ${indianMobile}:`, qData.message);
+        results.deliveredToCarrier = true;
+        results.details = `Delivered via Fast2SMS Quick SMS to ${phone}`;
+        return results;
+      }
+
+      console.warn(`[Fast2SMS] Route 'q' response:`, qData?.message || qData);
+
+      // 2. Try OTP route (route: 'otp') as secondary fallback
+      const otpRes = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+        method: 'POST',
+        headers: {
+          authorization: fast2SmsKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -31,98 +53,26 @@ export async function sendSms({ phone, code }) {
           numbers: indianMobile,
         }),
       });
-      const data = await res.json();
-      if (data.return) {
-        console.log(`[SMS Gateway] Fast2SMS dispatched successfully to ${indianMobile}:`, data.message);
-        results.provider = 'Fast2SMS';
+
+      const otpData = await otpRes.json();
+      if (otpData && otpData.return) {
+        console.log(`[Fast2SMS] OTP SMS successfully dispatched to ${indianMobile}:`, otpData.message);
         results.deliveredToCarrier = true;
-        results.details = `Delivered via Fast2SMS to ${phone}`;
+        results.details = `Delivered via Fast2SMS OTP route to ${phone}`;
         return results;
-      } else {
-        console.warn(`[SMS Gateway] Fast2SMS error:`, data.message);
       }
+
+      console.warn(`[Fast2SMS] Route 'otp' response:`, otpData?.message || otpData);
+      results.details = qData?.message || otpData?.message || 'Carrier dispatch pending';
     } catch (err) {
-      console.warn(`[SMS Gateway] Fast2SMS network error:`, err.message);
+      console.warn(`[Fast2SMS] Network error:`, err.message);
+      results.details = err.message;
     }
+  } else if (!indianMobile) {
+    results.details = `Non-standard Indian mobile format (${phone}). Expected 10-digit number.`;
+  } else {
+    results.details = 'FAST2SMS_API_KEY not configured.';
   }
 
-  // 2. Try Twilio (Global Carrier Delivery)
-  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-  const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-  const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
-  if (twilioSid && twilioToken && twilioFrom) {
-    try {
-      const url = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
-      const auth = Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
-      const params = new URLSearchParams({
-        To: phone,
-        From: twilioFrom,
-        Body: message,
-      });
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: params.toString(),
-      });
-      const data = await res.json();
-      if (data.sid) {
-        console.log(`[SMS Gateway] Twilio SMS dispatched successfully (SID: ${data.sid}) to ${phone}`);
-        results.provider = 'Twilio';
-        results.deliveredToCarrier = true;
-        results.details = `Delivered via Twilio to ${phone}`;
-        return results;
-      } else {
-        console.warn(`[SMS Gateway] Twilio error:`, data.message || data);
-      }
-    } catch (err) {
-      console.warn(`[SMS Gateway] Twilio network error:`, err.message);
-    }
-  }
-
-  // 3. Try Android Phone SIM Gateway (Cloud first for instant delivery across Wi-Fi & 4G/5G mobile data)
-  const targets = [];
-  if (process.env.SMS_CLOUD_WEBHOOK_URL) {
-    targets.push({ url: process.env.SMS_CLOUD_WEBHOOK_URL, auth: process.env.SMS_CLOUD_WEBHOOK_AUTH, name: 'Cloud' });
-  }
-  if (process.env.SMS_WEBHOOK_URL) {
-    targets.push({ url: process.env.SMS_WEBHOOK_URL, auth: process.env.SMS_WEBHOOK_AUTH, name: 'Local Wi-Fi' });
-  }
-
-  for (const target of targets) {
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (target.auth) headers['Authorization'] = target.auth.trim();
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 4000);
-      const res = await fetch(target.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          phoneNumbers: [phone],
-          message,
-        }),
-        signal: ctrl.signal,
-      });
-      clearTimeout(t);
-      if (res.ok || res.status === 200 || res.status === 201 || res.status === 202) {
-        console.log(`[SMS Gateway] Dispatched to Android SIM Gateway (${target.url}) status: ${res.status}`);
-        results.provider = 'Android SIM Gateway';
-        results.deliveredToCarrier = true;
-        results.details = `Delivered through Android SIM Gateway (${res.status})`;
-        return results;
-      } else {
-        const errText = await res.text();
-        console.warn(`[SMS Gateway] Android SIM Gateway returned status ${res.status}:`, errText);
-      }
-    } catch (err) {
-      console.warn(`[SMS Gateway] Android SIM Gateway error for ${target.url}:`, err.message);
-    }
-  }
-
-  // 4. Real-time In-App / Simulated Delivery
-  results.details = `Instant real-time in-app delivery to ${phone}`;
   return results;
 }

@@ -20,7 +20,3 @@ services:
         sync: false
       - key: FAST2SMS_API_KEY
         sync: false
-      - key: SMS_CLOUD_WEBHOOK_URL
-        sync: false
-      - key: SMS_CLOUD_WEBHOOK_AUTH
-        sync: false
