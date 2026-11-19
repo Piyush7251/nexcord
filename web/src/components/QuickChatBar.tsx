@@ -51,7 +51,12 @@ export const QuickChatBar: React.FC<QuickChatBarProps> = ({
   compact = false,
   defaultOpen = false,
 }) => {
-  const [expanded, setExpanded] = useState(defaultOpen);
+  const [expanded, setExpanded] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+      return false;
+    }
+    return defaultOpen;
+  });
   const [cat, setCat] = useState<QuickChatCategory>('tactical');
   const [zone, setZone] = useState('Any Zone');
   const [cooldownId, setCooldownId] = useState<string | null>(null);
@@ -92,7 +97,7 @@ export const QuickChatBar: React.FC<QuickChatBarProps> = ({
         >
           <Zap size={14} />
           <span>Quick Chat</span>
-          {!compact && <kbd>Alt+1..5</kbd>}
+          {!compact && <kbd className="desktop-only">Alt+1..5</kbd>}
         </button>
 
         <div className="nc-qc-fast-row">
@@ -162,7 +167,7 @@ export const QuickChatBar: React.FC<QuickChatBarProps> = ({
                 <div className="nc-qc-card-top">
                   <span className="nc-qc-card-icon">{p.icon}</span>
                   <span className="nc-qc-card-label">{p.label}</span>
-                  {p.hotkey && <kbd>{p.hotkey}</kbd>}
+                  {p.hotkey && <kbd className="desktop-only">{p.hotkey}</kbd>}
                 </div>
                 <div className="nc-qc-card-preview">{p.text}</div>
               </button>

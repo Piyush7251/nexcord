@@ -1171,6 +1171,8 @@ interface UserProfileModalProps {
   onAddFriend: (userId: string) => void;
   onToggleRole?: (userId: string, roleId: string) => void;
   onKick?: (userId: string) => void;
+  onOpenSettings?: () => void;
+  onLogout?: () => void;
   onClose: () => void;
 }
 
@@ -1184,6 +1186,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onAddFriend,
   onToggleRole,
   onKick,
+  onOpenSettings,
+  onLogout,
   onClose,
 }) => {
   const member = server?.members.find((m) => m.userId === user.id);
@@ -1237,7 +1241,36 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </div>
           )}
 
-          {!isMe && (
+          {isMe ? (
+            <div className="nc-user-card-actions">
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  className="nc-btn sm primary"
+                  onClick={() => {
+                    onClose();
+                    onOpenSettings();
+                  }}
+                >
+                  <Settings size={14} />
+                  <span>Edit Profile & Settings</span>
+                </button>
+              )}
+              {onLogout && (
+                <button
+                  type="button"
+                  className="nc-btn sm danger"
+                  onClick={() => {
+                    onClose();
+                    onLogout();
+                  }}
+                >
+                  <LogOut size={14} />
+                  <span>Log Out</span>
+                </button>
+              )}
+            </div>
+          ) : (
             <div className="nc-user-card-actions">
               <button
                 type="button"

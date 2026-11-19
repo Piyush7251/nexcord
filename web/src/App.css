@@ -1489,6 +1489,7 @@
   display: flex;
   flex-direction: column;
   background: #0a0c10;
+  position: relative;
 }
 
 .nc-live-topbar {
@@ -3217,6 +3218,10 @@
   display: none;
 }
 
+.nc-mobile-voice-strip {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .nc-right-drawer {
     display: none;
@@ -3240,6 +3245,7 @@
   .nc-shell {
     height: 100dvh;
     width: 100vw;
+    max-width: 100vw;
     overflow: hidden;
     position: relative;
     padding-bottom: 0;
@@ -3248,12 +3254,23 @@
   .nc-main {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     width: 100%;
+    max-width: 100vw;
     height: 100dvh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     position: relative;
+  }
+
+  .nc-content-row,
+  .nc-stage,
+  .nc-chat-stage {
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   /* Backdrop with subtle blur */
@@ -3284,10 +3301,11 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: 62px;
+    height: 100dvh;
+    width: 60px;
     z-index: 70;
     background: var(--bg-rail);
-    padding: 10px 0 60px;
+    padding: 10px 0 calc(20px + env(safe-area-inset-bottom, 0px));
     transform: translateX(-100%);
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -3298,14 +3316,15 @@
 
   .nc-sidebar {
     position: fixed;
-    left: 62px;
+    left: 60px;
     top: 0;
     bottom: 0;
-    width: calc(100vw - 62px - 36px);
-    max-width: 290px;
+    height: 100dvh;
+    width: calc(100vw - 60px - 24px);
+    max-width: 284px;
     z-index: 70;
     background: var(--bg-sidebar);
-    transform: translateX(calc(-100% - 62px));
+    transform: translateX(calc(-100% - 60px));
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     box-shadow: 14px 0 36px rgba(0, 0, 0, 0.7);
     border-radius: 0 14px 14px 0;
@@ -3317,16 +3336,26 @@
   }
 
   .nc-sidebar-head {
+    min-height: 52px;
+    height: auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 10px 12px;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .nc-sidebar-head.server {
+    padding: 8px 10px;
+  }
+
+  .nc-srv-title {
+    font-size: 14px;
   }
 
   .nc-sidebar-close-btn {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.08);
     display: flex;
@@ -3337,23 +3366,57 @@
     flex-shrink: 0;
   }
 
+  .nc-dm-close {
+    opacity: 0.7;
+    padding: 4px;
+  }
+
+  .nc-voice-bar {
+    padding: 6px 8px;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .nc-voice-bar-info {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .nc-voice-bar-sub {
+    max-width: 100%;
+  }
+
+  .nc-user-dock {
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    gap: 4px;
+  }
+
+  .nc-user-dock-btns {
+    flex-shrink: 0;
+    gap: 1px;
+  }
+
   /* Mobile Top Bar */
   .nc-topbar {
-    height: 48px;
-    padding: 0 10px;
+    min-height: 48px;
+    height: auto;
+    padding: 6px 10px;
     gap: 6px;
     flex-shrink: 0;
+    flex-wrap: wrap;
   }
 
   .nc-topbar-left {
     min-width: 0;
     flex: 1;
     gap: 6px;
+    flex-wrap: wrap;
   }
 
   .nc-topbar-left h2 {
     font-size: 15px;
-    max-width: 140px;
+    max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3362,6 +3425,7 @@
   .nc-topbar-actions {
     gap: 4px;
     flex-shrink: 0;
+    margin-left: auto;
   }
 
   .nc-topbar-actions .nc-icon-btn {
@@ -3373,15 +3437,20 @@
     justify-content: center;
   }
 
-  /* Friends Segmented Horizontal Scroll */
+  /* Friends Segmented Horizontal Scroll (Full-width row on mobile so it never overlaps title) */
   .nc-friends-tabs {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    order: 3;
     display: flex;
-    gap: 5px;
+    flex-wrap: nowrap;
+    gap: 6px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    max-width: calc(100vw - 80px);
-    padding: 2px 0;
+    padding: 6px 0 2px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .nc-friends-tabs::-webkit-scrollbar {
@@ -3389,10 +3458,163 @@
   }
 
   .nc-friend-tab {
-    padding: 4px 10px;
+    padding: 5px 11px;
     font-size: 12px;
     border-radius: 12px;
     white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Friends View & Contacts View on Mobile */
+  .nc-friends-view {
+    padding: 12px;
+  }
+
+  .nc-contacts-view {
+    padding: 4px 0;
+    max-width: 100%;
+  }
+
+  .nc-contacts-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .nc-add-friend-form {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .nc-add-friend-form input {
+    font-size: 16px;
+    padding: 6px 4px;
+  }
+
+  .nc-add-friend-form .nc-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .nc-friend-row {
+    gap: 10px;
+    padding: 10px 4px;
+  }
+
+  .nc-friend-info {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .nc-friend-info strong,
+  .nc-friend-info span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nc-friend-btns {
+    flex-shrink: 0;
+    gap: 4px;
+  }
+
+  /* Chat Messages & Attachments on Mobile */
+  .nc-messages-scroll {
+    padding: 10px 0 6px;
+  }
+
+  .nc-welcome-header {
+    padding: 12px 12px 16px;
+    margin-bottom: 8px;
+  }
+
+  .nc-welcome-ico {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 8px;
+  }
+
+  .nc-welcome-header h3 {
+    font-size: 18px;
+  }
+
+  .nc-welcome-header p {
+    font-size: 13px;
+  }
+
+  .nc-msg-row {
+    padding: 5px 10px;
+    gap: 10px;
+  }
+
+  .nc-msg-time-gutter {
+    width: 32px;
+    font-size: 9.5px;
+  }
+
+  .nc-att-img {
+    max-width: 100% !important;
+    height: auto;
+    max-height: 220px;
+  }
+
+  .nc-att-file {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .nc-msg-actions {
+    top: -10px;
+    right: 8px;
+    z-index: 25;
+  }
+
+  .nc-emoji-pop {
+    flex-wrap: wrap;
+    max-width: min(230px, 82vw);
+    right: 0;
+    z-index: 60;
+  }
+
+  /* Mobile Active Voice Strip (when browsing text channels during a call) */
+  .nc-mobile-voice-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(35, 165, 90, 0.16);
+    border-top: 1px solid rgba(87, 242, 135, 0.35);
+    flex-shrink: 0;
+    z-index: 45;
+  }
+
+  .nc-mobile-voice-info {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    flex: 1;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #57f287;
+    cursor: pointer;
+  }
+
+  .nc-mobile-voice-info span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nc-mobile-voice-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     flex-shrink: 0;
   }
 
@@ -3453,49 +3675,138 @@
   }
 
   /* Composer & Touch Inputs */
+  .nc-typing-bar {
+    padding: 2px 10px 4px;
+    font-size: 11.5px;
+  }
+
+  .nc-reply-banner {
+    margin: 0 8px 4px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
   .nc-composer {
-    margin: 4px 8px 8px;
-    padding: 4px 8px;
+    margin: 4px 8px 6px;
+    padding: 3px 6px;
     border-radius: 8px;
+    flex-shrink: 0;
   }
 
   .nc-composer input {
-    font-size: 16px !important; /* Critical: stops iOS forced zoom */
-    padding: 8px 4px;
+    font-size: 16px !important; /* Critical: stops mobile browser forced zoom */
+    padding: 7px 4px;
+    min-width: 0;
   }
 
   .nc-composer .nc-icon-btn,
   .nc-send-btn {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 34px;
+    min-height: 34px;
+    flex-shrink: 0;
   }
 
-  /* Quick Chat Pills */
-  .nc-qc-chips {
+  /* In-Match Quick Chat Bar & Drawer on Mobile */
+  .nc-quickchat-wrap {
+    margin: 2px 8px;
+    padding: 4px 6px;
+    flex-shrink: 0;
+  }
+
+  .nc-quickchat-strip {
+    gap: 5px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    padding: 4px 8px 6px;
-    flex-wrap: nowrap;
   }
 
-  .nc-qc-chips::-webkit-scrollbar {
+  .nc-quickchat-strip::-webkit-scrollbar {
     display: none;
   }
 
-  .nc-qc-grid {
-    grid-template-columns: 1fr;
+  .nc-qc-fast-row {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+    gap: 5px;
+  }
+
+  .nc-qc-fast-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nc-qc-chip {
+    padding: 4px 8px;
+    font-size: 11.5px;
+    flex-shrink: 0;
+  }
+
+  .nc-qc-drawer {
+    max-height: 28dvh;
+    overflow-y: auto;
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  .nc-qc-drawer-head {
     gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .nc-qc-tabs {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 4px;
+  }
+
+  .nc-qc-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nc-qc-tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 4px 8px;
+    font-size: 11.5px;
+  }
+
+  .nc-qc-zone {
+    width: 100%;
+    justify-content: space-between;
+    font-size: 11.5px;
+  }
+
+  .nc-qc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .nc-qc-card {
+    padding: 6px 8px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .nc-qc-card-top {
+    font-size: 12px;
   }
 
   /* Squad Banner on Mobile */
   .nc-squad-banner {
-    padding: 8px 10px;
+    padding: 7px 10px;
     border-radius: 0;
+    max-height: 36dvh;
+    overflow-y: auto;
+    flex-shrink: 0;
   }
 
   .nc-squad-banner.collapsed {
     padding: 6px 10px;
+    max-height: none;
+    overflow: visible;
   }
 
   .nc-squad-top {
@@ -3503,14 +3814,70 @@
     gap: 6px;
   }
 
+  .nc-squad-title-group {
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .nc-squad-badge {
+    font-size: 10px;
+    padding: 3px 7px;
+  }
+
+  .nc-squad-select {
+    max-width: 135px;
+    font-size: 11.5px;
+    padding: 3px 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .nc-squad-ready-count {
+    font-size: 11.5px;
+  }
+
+  .nc-squad-actions {
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .nc-squad-actions .nc-btn.sm {
+    padding: 4px 8px;
+    font-size: 11.5px;
+  }
+
+  .nc-squad-body {
+    margin-top: 8px;
+    gap: 8px;
+  }
+
   .nc-squad-slots {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
 
   .nc-squad-slot {
     padding: 6px 8px;
     font-size: 12px;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .nc-slot-name {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nc-slot-state {
+    font-size: 10.5px;
+  }
+
+  .nc-tactical-radar {
+    height: 120px;
   }
 
   /* Live Stream Stage on Mobile */
@@ -3529,12 +3896,12 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 8px 12px;
+    padding: 7px 10px;
     border-radius: 6px;
     border: none;
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-muted);
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 700;
     transition: all 0.15s ease;
   }
@@ -3557,6 +3924,7 @@
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
   }
 
   .mobile-hidden {
@@ -3568,6 +3936,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
 
   .nc-live-chat-panel {
@@ -3576,33 +3945,36 @@
     width: 100% !important;
     border-left: none;
     border-top: none;
+    overflow: hidden;
   }
 
   .nc-spectator-hud {
     display: none !important;
   }
 
+  /* Dock Hype Reactions neatly below video viewport on mobile — zero overlap with video controls or buttons */
   .nc-hype-dock {
-    position: absolute;
-    bottom: 12px;
-    left: 50% !important;
-    right: auto !important;
-    transform: translateX(-50%);
-    padding: 4px 10px;
+    position: static !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    padding: 6px 10px;
     gap: 6px;
-    z-index: 25;
-    background: rgba(10, 12, 16, 0.88);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 24px;
-    max-width: 92%;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    z-index: 10;
+    background: #14161d;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0;
+    box-shadow: none;
+    flex-shrink: 0;
   }
 
   .nc-hype-btn {
-    font-size: 19px;
-    padding: 2px 6px;
+    font-size: 20px;
+    padding: 4px 8px;
     line-height: 1;
   }
 
@@ -3610,17 +3982,19 @@
     padding: 6px 10px;
     flex-wrap: nowrap;
     gap: 6px;
+    flex-shrink: 0;
   }
 
   .nc-live-meta {
     min-width: 0;
     flex: 1;
     overflow: hidden;
+    gap: 6px;
   }
 
   .nc-live-title {
-    font-size: 13px;
-    max-width: 140px;
+    font-size: 12.5px;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3639,17 +4013,97 @@
     display: none;
   }
 
+  .nc-live-offline {
+    padding: 16px;
+    gap: 8px;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+
+  .nc-live-offline h3 {
+    font-size: 17px;
+    margin: 0;
+  }
+
+  .nc-live-offline p {
+    font-size: 13px;
+    margin: 0;
+  }
+
   .nc-live-start-btns {
     flex-direction: column;
     width: 100%;
-    gap: 10px;
+    gap: 8px;
+    margin-top: 10px;
   }
 
   .nc-live-start-btns .nc-btn {
     width: 100%;
-    padding: 12px 16px;
-    font-size: 14px;
+    padding: 11px 16px;
+    font-size: 13.5px;
     justify-content: center;
+  }
+
+  /* Voice & Video Call Stage on Mobile */
+  .nc-voice-stage {
+    padding: 10px;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  .nc-voice-stage-head {
+    gap: 8px;
+    min-width: 0;
+    flex-shrink: 0;
+  }
+
+  .nc-voice-title {
+    min-width: 0;
+    flex: 1;
+    gap: 6px;
+    font-size: 13.5px;
+  }
+
+  .nc-voice-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nc-voice-grid {
+    overflow-y: auto;
+    align-content: start;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+
+  .nc-voice-tile {
+    min-height: 140px;
+    border-radius: 10px;
+  }
+
+  .nc-voice-tile-footer {
+    left: 6px;
+    right: 6px;
+    bottom: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .nc-voice-dock {
+    flex-shrink: 0;
+    gap: 10px;
+    padding: 6px 12px;
+    background: #1b1d23;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    margin: 0 auto;
+  }
+
+  .nc-dock-btn {
+    width: 44px;
+    height: 44px;
   }
 
   /* Mobile Bottom Sheet Modals */
@@ -3658,11 +4112,16 @@
     padding: 0 !important;
   }
 
-  .nc-modal {
+  .nc-modal,
+  .nc-user-card,
+  .nc-switcher,
+  .nc-incoming-call-card {
     width: 100% !important;
     max-width: 100% !important;
     border-radius: 20px 20px 0 0 !important;
     max-height: 86dvh !important;
+    overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     animation: ncSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
@@ -3676,11 +4135,43 @@
     margin: 8px auto 2px;
   }
 
+  .nc-modal-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nc-modal-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nc-modal-tabs button {
+    white-space: nowrap;
+  }
+
+  .nc-invite-code-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .nc-modal-actions.spread {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
   .nc-auth-card {
     margin: 10px !important;
     padding: 20px 16px !important;
     border-radius: 14px !important;
     max-width: 100% !important;
+  }
+
+  .nc-demo-row {
+    flex-direction: column;
+  }
+
+  .nc-demo-row .nc-btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .nc-otp-input {

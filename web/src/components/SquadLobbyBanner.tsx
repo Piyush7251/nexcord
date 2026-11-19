@@ -41,7 +41,9 @@ export const SquadLobbyBanner: React.FC<SquadLobbyBannerProps> = ({
   onMapPing,
   onJoinSquadVoice,
 }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false,
+  );
   const [showMinimap, setShowMinimap] = useState(false);
   const [lastPing, setLastPing] = useState<{ x: number; y: number; label: string } | null>(null);
 

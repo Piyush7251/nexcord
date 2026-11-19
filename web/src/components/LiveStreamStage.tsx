@@ -513,11 +513,11 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
                   onClick={() => setShowBroadcastModal(true)}
                 >
                   <Monitor size={13} />
-                  <span>Switch Source</span>
+                  <span>Switch<span className="desktop-only"> Source</span></span>
                 </button>
                 {canStop && (
                   <button type="button" className="nc-btn xs danger" onClick={handleStopLive}>
-                    <span>End Stream</span>
+                    <span>End<span className="desktop-only"> Stream</span></span>
                   </button>
                 )}
               </>
@@ -525,7 +525,7 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
 
             <button
               type="button"
-              className="nc-icon-btn sm"
+              className="nc-icon-btn sm desktop-only"
               onClick={() => setShowSideChat((v) => !v)}
               title="Toggle Spectator Chat Sidebar"
             >
@@ -684,26 +684,26 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
               </form>
             </div>
           )}
+        </div>
 
-          {/* Hype Reaction Dock (Bottom-Left over video) */}
-          <div className="nc-hype-dock">
-            {['🔥', '⚡', '👑', '💯', '🎯', '💜'].map((em) => (
-              <button
-                key={em}
-                type="button"
-                className="nc-hype-btn"
-                onClick={() => onSendHype(em)}
-                title={`Send ${em} hype burst to all spectators`}
-              >
-                {em}
-              </button>
-            ))}
-          </div>
+        {/* Hype Reaction Dock (Bottom-Left over video on desktop, dedicated bottom bar on mobile) */}
+        <div className="nc-hype-dock">
+          {['🔥', '⚡', '👑', '💯', '🎯', '💜'].map((em) => (
+            <button
+              key={em}
+              type="button"
+              className="nc-hype-btn"
+              onClick={() => onSendHype(em)}
+              title={`Send ${em} hype burst to all spectators`}
+            >
+              {em}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Right Spectator Chatroom Panel */}
-      {showSideChat && (
+      {(showSideChat || mobileTab === 'chat') && (
         <aside className={`nc-live-chat-panel ${mobileTab !== 'chat' ? 'mobile-hidden' : ''}`}>
           <div className="nc-live-chat-head">
             <span>STREAM CHAT</span>

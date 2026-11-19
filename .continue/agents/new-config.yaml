@@ -1,0 +1,20 @@
+name: Local Config
+version: 1.0.0
+schema: v1
+
+models:
+  - name: Nemotron 3.5 Super
+    provider: openai
+    model: nvidia/nemotron-3.5-super-vl-120b-a12b
+    apiBase: https://integrate.api.nvidia.com/v1
+    apiKey: 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
+    roles:
+      - chat
+      - edit
+      - apply
+    defaultCompletionOptions:
+      contextLength: 262144
+      maxTokens: 16384
+    capabilities:
+      - tool_use
+      - image_input

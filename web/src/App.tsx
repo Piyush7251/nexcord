@@ -2095,6 +2095,55 @@ export function App() {
           )}
         </div>
 
+        {/* Mobile Active Voice Mini-Bar (when browsing text channels while connected to voice) */}
+        {callState.status !== 'idle' && !isViewingVoiceStage && (
+          <div className="nc-mobile-voice-strip mobile-only">
+            <div
+              className="nc-mobile-voice-info"
+              onClick={() => {
+                if (activeVoiceServer && activeVoiceChannel) {
+                  setViewMode('server');
+                  setActiveServerId(activeVoiceServer.id);
+                  setActiveChannelId(activeVoiceChannel.id);
+                }
+              }}
+            >
+              <Radio size={14} className="ok-ico" />
+              <span>
+                {activeVoiceChannel
+                  ? `${activeVoiceChannel.name} • Voice Connected`
+                  : `${callState.targetLabel || 'Call'} • Connected`}
+              </span>
+            </div>
+            <div className="nc-mobile-voice-actions">
+              <button
+                type="button"
+                className={`nc-icon-btn sm ${callState.micMuted ? 'danger' : ''}`}
+                onClick={toggleMic}
+                title={callState.micMuted ? 'Unmute' : 'Mute'}
+              >
+                {callState.micMuted ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+              <button
+                type="button"
+                className={`nc-icon-btn sm ${callState.deafened ? 'danger' : ''}`}
+                onClick={toggleDeafen}
+                title={callState.deafened ? 'Undeafen' : 'Deafen'}
+              >
+                {callState.deafened ? <VolumeX size={16} /> : <Headphones size={16} />}
+              </button>
+              <button
+                type="button"
+                className="nc-icon-btn sm danger"
+                onClick={hangupCall}
+                title="Disconnect"
+              >
+                <PhoneOff size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* 5. DISCORD-STYLE MOBILE BOTTOM NAVIGATION BAR */}
         <nav className="nc-mobile-bottom-bar mobile-only" aria-label="Mobile Navigation">
           <button
@@ -2280,6 +2329,8 @@ export function App() {
             await api.kickMember(activeServer.id, uid);
             await runSync();
           }}
+          onOpenSettings={() => setShowUserSettings(true)}
+          onLogout={handleLogout}
           onClose={() => setProfileUser(null)}
         />
       )}

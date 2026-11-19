@@ -77,8 +77,10 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
       <div className="nc-voice-stage-head">
         <div className="nc-voice-title">
           <span className="nc-voice-live-dot" />
-          <span>{channel ? `Voice Connected — ${channel.name}` : `Call — ${callState.targetLabel || 'Direct Call'}`}</span>
-          <span className="nc-sdk-chip">@nexconn/call</span>
+          <span className="nc-voice-title-text">
+            {channel ? `Voice Connected — ${channel.name}` : `Call — ${callState.targetLabel || 'Direct Call'}`}
+          </span>
+          <span className="nc-sdk-chip desktop-only">@nexconn/call</span>
         </div>
         {onInviteUser && inviteCandidates.length > 0 && (
           <div className="nc-voice-invite-wrap">
