@@ -3579,10 +3579,51 @@
   }
 
   .nc-spectator-hud {
-    width: calc(100vw - 32px);
-    max-width: 280px;
-    bottom: 56px;
-    right: 16px;
+    display: none !important;
+  }
+
+  .nc-hype-dock {
+    position: absolute;
+    bottom: 12px;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%);
+    padding: 4px 10px;
+    gap: 6px;
+    z-index: 25;
+    background: rgba(10, 12, 16, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 24px;
+    max-width: 92%;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  }
+
+  .nc-hype-btn {
+    font-size: 19px;
+    padding: 2px 6px;
+    line-height: 1;
+  }
+
+  .nc-live-topbar {
+    padding: 6px 10px;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .nc-live-meta {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .nc-live-title {
+    font-size: 13px;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .nc-live-controls {
@@ -3590,6 +3631,8 @@
     overflow-x: auto;
     scrollbar-width: none;
     padding: 2px 0;
+    gap: 4px;
+    flex-shrink: 0;
   }
 
   .nc-live-controls::-webkit-scrollbar {
