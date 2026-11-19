@@ -887,7 +887,15 @@ export function App() {
             <div className="nc-sidebar-head">
               <button type="button" className="nc-quick-search-btn" onClick={() => setShowQuickSwitcher(true)}>
                 <span>Find or start a conversation</span>
-                <kbd>Ctrl+K</kbd>
+                <kbd className="desktop-only">Ctrl+K</kbd>
+              </button>
+              <button
+                type="button"
+                className="nc-icon-btn mobile-only nc-sidebar-close-btn"
+                onClick={() => setMobileNavOpen(false)}
+                title="Close Drawer"
+              >
+                <X size={18} />
               </button>
             </div>
 
@@ -954,6 +962,17 @@ export function App() {
                 </span>
               </div>
               <ChevronDown size={16} />
+              <button
+                type="button"
+                className="nc-icon-btn mobile-only nc-sidebar-close-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMobileNavOpen(false);
+                }}
+                title="Close Drawer"
+              >
+                <X size={18} />
+              </button>
               {showServerMenu && (
                 <div className="nc-dropdown-menu" onClick={(e) => e.stopPropagation()}>
                   <button
@@ -1254,7 +1273,7 @@ export function App() {
                 </button>
                 <button
                   type="button"
-                  className={`nc-icon-btn ${showPinsDrawer ? 'active' : ''}`}
+                  className={`nc-icon-btn ${showPinsDrawer ? 'active' : ''} desktop-only`}
                   onClick={() => setShowPinsDrawer((v) => !v)}
                   title="Pinned Messages"
                 >
@@ -1262,7 +1281,7 @@ export function App() {
                 </button>
                 <button
                   type="button"
-                  className={`nc-icon-btn ${showSearch ? 'active' : ''}`}
+                  className={`nc-icon-btn ${showSearch ? 'active' : ''} desktop-only`}
                   onClick={() => setShowSearch((v) => !v)}
                   title="Search Channel Messages"
                 >
@@ -1274,7 +1293,7 @@ export function App() {
             {viewMode === 'server' && (
               <button
                 type="button"
-                className={`nc-icon-btn ${showMemberList ? 'active' : ''}`}
+                className={`nc-icon-btn ${showMemberList ? 'active' : ''} desktop-only`}
                 onClick={() => setShowMemberList((v) => !v)}
                 title="Toggle Member List"
               >
@@ -1284,7 +1303,7 @@ export function App() {
 
             <button
               type="button"
-              className={`nc-sdk-header-pill ${sdkMode}`}
+              className={`nc-sdk-header-pill ${sdkMode} desktop-only`}
               onClick={() => setShowSdkModal(true)}
               title="Open Nexconn Chat & Call SDK Console"
             >
@@ -2057,6 +2076,60 @@ export function App() {
             </aside>
           )}
         </div>
+
+        {/* 5. DISCORD-STYLE MOBILE BOTTOM NAVIGATION BAR */}
+        <nav className="nc-mobile-bottom-bar mobile-only" aria-label="Mobile Navigation">
+          <button
+            type="button"
+            className={`nc-m-tab ${mobileNavOpen ? 'active' : ''}`}
+            onClick={() => setMobileNavOpen((v) => !v)}
+          >
+            <Hash size={20} />
+            <span>Channels</span>
+          </button>
+
+          <button
+            type="button"
+            className={`nc-m-tab ${viewMode === 'home' && !mobileNavOpen ? 'active' : ''}`}
+            onClick={() => {
+              setViewMode('home');
+              setActiveDmUserId('');
+              setMobileNavOpen(false);
+            }}
+          >
+            <Users size={20} />
+            <span>Friends</span>
+            {incomingReq.length > 0 && <span className="nc-m-badge">{incomingReq.length}</span>}
+          </button>
+
+          {activeServer && (
+            <button
+              type="button"
+              className={`nc-m-tab ${viewMode === 'server' && (activeChannel?.type === 'live' || activeChannel?.name.includes('squad')) ? 'active' : ''}`}
+              onClick={() => {
+                setViewMode('server');
+                const liveOrSquad =
+                  activeServer.channels.find((c) => c.type === 'live') ||
+                  activeServer.channels.find((c) => c.name.includes('squad')) ||
+                  activeServer.channels[0];
+                if (liveOrSquad) selectChannel(activeServer, liveOrSquad);
+                setMobileNavOpen(false);
+              }}
+            >
+              <Gamepad2 size={20} />
+              <span>Arena</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="nc-m-tab"
+            onClick={() => setProfileUser(me)}
+          >
+            <Avatar user={me} size={22} showStatus />
+            <span>You</span>
+          </button>
+        </nav>
       </main>
 
       {/* MODALS */}

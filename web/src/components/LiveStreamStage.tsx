@@ -70,6 +70,7 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
   const [showHudOverlay, setShowHudOverlay] = useState(true);
   const [showDanmaku, setShowDanmaku] = useState(true);
   const [showSideChat, setShowSideChat] = useState(true);
+  const [mobileTab, setMobileTab] = useState<'stage' | 'chat'>('stage');
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [streamTitle, setStreamTitle] = useState('My Live Stream');
   const [streamMode, setStreamMode] = useState<'webrtc' | 'embed'>('webrtc');
@@ -290,8 +291,29 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
 
   return (
     <div className="nc-live-layout">
+      {/* Mobile Stage vs Chat Tabs */}
+      <div className="nc-mobile-live-tabs mobile-only">
+        <button
+          type="button"
+          className={`nc-m-live-tab ${mobileTab === 'stage' ? 'active' : ''}`}
+          onClick={() => setMobileTab('stage')}
+        >
+          <Tv size={14} />
+          <span>Stage View</span>
+          {isLiveActive && <span className="nc-live-pill-mini">LIVE</span>}
+        </button>
+        <button
+          type="button"
+          className={`nc-m-live-tab ${mobileTab === 'chat' ? 'active' : ''}`}
+          onClick={() => setMobileTab('chat')}
+        >
+          <MessageSquare size={14} />
+          <span>Stream Chat ({messages.length})</span>
+        </button>
+      </div>
+
       {/* Main Video + Spectator Overlay Area */}
-      <div className="nc-live-stage" ref={stageRef}>
+      <div className={`nc-live-stage ${mobileTab !== 'stage' ? 'mobile-hidden' : ''}`} ref={stageRef}>
         <div className="nc-live-topbar">
           <div className="nc-live-meta">
             {isLiveActive ? (
@@ -546,7 +568,7 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
 
       {/* Right Spectator Chatroom Panel */}
       {showSideChat && (
-        <aside className="nc-live-chat-panel">
+        <aside className={`nc-live-chat-panel ${mobileTab !== 'chat' ? 'mobile-hidden' : ''}`}>
           <div className="nc-live-chat-head">
             <span>STREAM CHAT</span>
             <span className="nc-sdk-chip">OpenChannel</span>

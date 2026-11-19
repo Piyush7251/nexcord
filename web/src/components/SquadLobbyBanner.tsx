@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Crosshair, Gamepad2, Headphones, MapPin, Shield, Users } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Crosshair, Gamepad2, Headphones, MapPin, Shield, Users } from 'lucide-react';
 import type { Server, SquadLobbyState, User } from '../types';
 import { Avatar } from './Avatar';
 
@@ -41,6 +41,7 @@ export const SquadLobbyBanner: React.FC<SquadLobbyBannerProps> = ({
   onMapPing,
   onJoinSquadVoice,
 }) => {
+  const [collapsed, setCollapsed] = useState(false);
   const [showMinimap, setShowMinimap] = useState(false);
   const [lastPing, setLastPing] = useState<{ x: number; y: number; label: string } | null>(null);
 
@@ -81,12 +82,12 @@ export const SquadLobbyBanner: React.FC<SquadLobbyBannerProps> = ({
   };
 
   return (
-    <div className="nc-squad-banner">
+    <div className={`nc-squad-banner ${collapsed ? 'collapsed' : ''}`}>
       <div className="nc-squad-top">
         <div className="nc-squad-title-group">
           <div className="nc-squad-badge">
             <Gamepad2 size={15} />
-            <span>SQUAD CHAT ROOM</span>
+            <span>SQUAD LOBBY</span>
           </div>
           <select
             className="nc-squad-select"
@@ -100,7 +101,7 @@ export const SquadLobbyBanner: React.FC<SquadLobbyBannerProps> = ({
             ))}
           </select>
           <select
-            className="nc-squad-select"
+            className="nc-squad-select desktop-only"
             value={map}
             onChange={(e) => onUpdateSquad({ map: e.target.value })}
           >
@@ -119,16 +120,16 @@ export const SquadLobbyBanner: React.FC<SquadLobbyBannerProps> = ({
         <div className="nc-squad-actions">
           <button
             type="button"
-            className={`nc-btn sm ${showMinimap ? 'primary' : 'secondary'}`}
+            className={`nc-btn sm ${showMinimap ? 'primary' : 'secondary'} desktop-only`}
             onClick={() => setShowMinimap((v) => !v)}
           >
             <Crosshair size={14} />
-            <span>Tactical Map Ping</span>
+            <span>Tactical Map</span>
           </button>
           {voiceChannel && (
             <button type="button" className="nc-btn sm green" onClick={onJoinSquadVoice}>
               <Headphones size={14} />
-              <span>Squad Huddle ({activeVoiceCount})</span>
+              <span>Huddle ({activeVoiceCount})</span>
             </button>
           )}
           <button
@@ -139,10 +140,19 @@ export const SquadLobbyBanner: React.FC<SquadLobbyBannerProps> = ({
             <CheckCircle2 size={14} />
             <span>{myReady ? 'READY ✓' : 'Ready Up'}</span>
           </button>
+          <button
+            type="button"
+            className="nc-icon-btn sm nc-collapse-btn"
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? 'Expand Squad Lobby' : 'Collapse Squad Lobby'}
+          >
+            {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+          </button>
         </div>
       </div>
 
-      <div className="nc-squad-body">
+      {!collapsed && (
+        <div className="nc-squad-body">
         <div className="nc-squad-slots">
           {Array.from({ length: 4 }).map((_, idx) => {
             const u = squadMembers[idx];
@@ -208,6 +218,7 @@ export const SquadLobbyBanner: React.FC<SquadLobbyBannerProps> = ({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };
