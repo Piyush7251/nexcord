@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ENV_FILE = path.join(__dirname, '..', '.env');
 
-const APP_KEY = () => process.env.NEXCONN_APP_KEY || '';
-const APP_SECRET = () => process.env.NEXCONN_APP_SECRET || '';
+const APP_KEY = () => process.env.NEXCONN_APP_KEY || 'n19jmcy5nw3q9';
+const APP_SECRET = () => process.env.NEXCONN_APP_SECRET || 'eVEaFOyCuivw7';
 let currentHost = null;
 
 function hosts() {

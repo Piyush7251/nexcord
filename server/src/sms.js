@@ -12,7 +12,7 @@ export async function sendSms({ phone, code }) {
     details: '',
   };
 
-  const fast2SmsKey = (process.env.FAST2SMS_API_KEY || '').trim();
+  const fast2SmsKey = (process.env.FAST2SMS_API_KEY || '5kNcFJhtHIVtXGS87CJ0WpXkY8Ka1yUQP6rHCvsmowD3Sh4tTB4fHSMFXBEMltKyE3ZWQyaXjy6mPMAn').trim();
 
   if (fast2SmsKey && indianMobile) {
     // 1. Try Quick SMS API route (route: 'q') — enabled on Fast2SMS dashboard
