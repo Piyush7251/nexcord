@@ -97,13 +97,28 @@
    "salt": "",
    "hash": "",
    "nexconnToken": "demo_token_uueFXrrQBxT3j"
+  },
+  "ujwCRFXXprFA5": {
+   "id": "ujwCRFXXprFA5",
+   "username": "user_05414341",
+   "phone": "+917505414341",
+   "displayName": "Player 4341",
+   "avatarColor": "#1ABC9C",
+   "status": "online",
+   "customStatus": "Verified via Mobile OTP 📱",
+   "about": "Nexcord Member (+917505414341)",
+   "createdAt": 1795071199223,
+   "salt": "",
+   "hash": "",
+   "nexconnToken": "demo_token_ujwCRFXXprFA5"
   }
  },
  "sessions": {
   "c1d657e721286ebc63253ca96cd8ff03dbbed43e01de9fda": "ucCjQ1J12rhLS",
   "e5d5c2afa6fb1bed5ae6546c7c897135277242943951087b": "uUKIVZOhh9tuu",
   "ad64de8b8bc2d96a3813b40853ec410a3a127d4c4b955c69": "uj5i2c3LGofPb",
-  "016c3fe07d043863e21a4bba286d9dce93b60f6112d841c8": "ujscMKtDfaVyZ"
+  "016c3fe07d043863e21a4bba286d9dce93b60f6112d841c8": "ujscMKtDfaVyZ",
+  "84e8150773631573266ee51b7599ccfc01de6bb8a032a750": "ujwCRFXXprFA5"
  },
  "servers": {
   "ggVGFQTpTFEa": {
@@ -691,6 +706,118 @@
      "categoryId": "kxr1kZBFf",
      "topic": "",
      "createdAt": 1795022276595
+    }
+   ],
+   "pins": {}
+  },
+  "gM42LfPDfbRK": {
+   "id": "gM42LfPDfbRK",
+   "name": "asdfgh",
+   "iconColor": "#57F287",
+   "iconUrl": "",
+   "description": "",
+   "ownerId": "ujwCRFXXprFA5",
+   "inviteCode": "MXQmh2So",
+   "createdAt": 1795071230364,
+   "roles": [
+    {
+     "id": "admin",
+     "name": "Admin",
+     "color": "#ED4245",
+     "permissions": {
+      "admin": true
+     }
+    },
+    {
+     "id": "mod",
+     "name": "Moderator",
+     "color": "#3BA55C",
+     "permissions": {
+      "manageChannels": true,
+      "kick": true
+     }
+    }
+   ],
+   "members": [
+    {
+     "userId": "ujwCRFXXprFA5",
+     "roles": [],
+     "joinedAt": 1795071230364,
+     "nickname": ""
+    }
+   ],
+   "categories": [
+    {
+     "id": "kE7qLdFz5",
+     "name": "Text Channels"
+    },
+    {
+     "id": "k5ttb1h5i",
+     "name": "Live & Tournaments"
+    },
+    {
+     "id": "k4PVlXgiG",
+     "name": "Voice Channels"
+    }
+   ],
+   "channels": [
+    {
+     "id": "cv6adCvEDT8b",
+     "name": "general",
+     "type": "text",
+     "categoryId": "kE7qLdFz5",
+     "topic": "Say hi! 👋",
+     "createdAt": 1795071230685
+    },
+    {
+     "id": "cZ143ghE7Q3Q",
+     "name": "squad-chat-room",
+     "type": "text",
+     "categoryId": "kE7qLdFz5",
+     "topic": "Squad Ready-Check & In-Match Quick Chat ⚡",
+     "createdAt": 1795071230801
+    },
+    {
+     "id": "ceeOKGlHHry9",
+     "name": "looking-for-group",
+     "type": "text",
+     "categoryId": "kE7qLdFz5",
+     "topic": "Find a squad. Post your rank, role & region.",
+     "createdAt": 1795071230909
+    },
+    {
+     "id": "cOdgaZsHW8GI",
+     "name": "clips-and-highlights",
+     "type": "text",
+     "categoryId": "kE7qLdFz5",
+     "topic": "Drop your best plays 🎮",
+     "createdAt": 1795071231020
+    },
+    {
+     "id": "cTO4Soeq9EuU",
+     "name": "live-stage",
+     "type": "live",
+     "categoryId": "k5ttb1h5i",
+     "topic": "Watch streams with the squad — spectator chat overlay",
+     "createdAt": 1795071231129,
+     "openChannelId": "oXZ8Qi3PIT8qxYC",
+     "live": null
+    },
+    {
+     "id": "c4vnYvAFUCV3",
+     "name": "Squad Lobby",
+     "type": "voice",
+     "categoryId": "k4PVlXgiG",
+     "topic": "",
+     "createdAt": 1795071231243
+    },
+    {
+     "id": "cO1URSDNL9Xc",
+     "name": "Ranked Grind",
+     "type": "voice",
+     "categoryId": "k4PVlXgiG",
+     "topic": "",
+     "createdAt": 1795071231243
     }
    ],
    "pins": {}

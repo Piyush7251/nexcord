@@ -69,6 +69,10 @@ class NexconnService {
   private peers: Map<string, RTCPeerConnection> = new Map();
   private remoteStreams: Map<string, MediaStream> = new Map();
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
+  private remoteAudioElements: Map<string, HTMLAudioElement> = new Map();
+  private audioContainer: HTMLDivElement | null = null;
+  private audioContext: AudioContext | null = null;
+  private isDeafened: boolean = false;
 
   setCallbacks(cb: NexconnCallbacks) {
     this.callbacks = { ...this.callbacks, ...cb };
@@ -597,27 +601,102 @@ class NexconnService {
     }
   }
 
+  unlockAudio() {
+    if (typeof window === 'undefined') return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        if (!this.audioContext || this.audioContext.state === 'closed') {
+          this.audioContext = new AudioCtx();
+        }
+        if (this.audioContext.state === 'suspended') {
+          this.audioContext.resume().catch(() => {});
+        }
+      }
+      this.remoteAudioElements.forEach((audio) => {
+        if (audio.srcObject) {
+          audio.play().catch(() => {});
+        }
+      });
+    } catch {}
+  }
+
+  playRemoteAudio(userId: string, stream: MediaStream) {
+    if (typeof window === 'undefined') return;
+    try {
+      let audio = this.remoteAudioElements.get(userId);
+      if (!audio) {
+        audio = document.createElement('audio');
+        audio.autoplay = true;
+        (audio as any).playsInline = true;
+        audio.setAttribute('playsinline', 'true');
+        audio.setAttribute('webkit-playsinline', 'true');
+        audio.style.display = 'none';
+
+        if (!this.audioContainer) {
+          this.audioContainer = document.getElementById('nexcord-remote-audio-container') as HTMLDivElement;
+          if (!this.audioContainer) {
+            this.audioContainer = document.createElement('div');
+            this.audioContainer.id = 'nexcord-remote-audio-container';
+            this.audioContainer.style.display = 'none';
+            document.body.appendChild(this.audioContainer);
+          }
+        }
+        this.audioContainer.appendChild(audio);
+        this.remoteAudioElements.set(userId, audio);
+      }
+
+      audio.muted = this.isDeafened;
+      if (audio.srcObject !== stream) {
+        audio.srcObject = stream;
+      }
+      const p = audio.play();
+      if (p !== undefined) {
+        p.catch((err) => {
+          console.warn(`[VoiceChat] Autoplay audio for ${userId} waiting for interaction:`, err);
+        });
+      }
+      this.log('call', 'VoiceChat.remoteAudioAttached', `userId=${userId}`, 'ok');
+    } catch (e: any) {
+      console.error('[VoiceChat] Failed to attach audio stream:', e);
+    }
+  }
+
+  setDeafened(deaf: boolean) {
+    this.isDeafened = deaf;
+    this.remoteAudioElements.forEach((audio) => {
+      audio.muted = deaf;
+    });
+  }
+
   async connectToPeer(remoteUserId: string, callId: string) {
     if (typeof window === 'undefined' || !window.RTCPeerConnection) return;
     if (this.peers.has(remoteUserId)) return;
 
     try {
+      this.unlockAudio();
+      let local = this.getLocalStream();
+      if (!local || local.getAudioTracks().length === 0) {
+        local = await this.ensureLocalMedia(true, false);
+      }
+
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
         ],
       });
       this.peers.set(remoteUserId, pc);
 
-      const local = this.getLocalStream();
       if (local) {
-        local.getTracks().forEach((track) => pc.addTrack(track, local));
+        local.getTracks().forEach((track) => pc.addTrack(track, local!));
       }
 
       pc.ontrack = (event) => {
         const stream = event.streams[0] || new MediaStream([event.track]);
         this.remoteStreams.set(remoteUserId, stream);
+        this.playRemoteAudio(remoteUserId, stream);
         const el = this.remoteVideoElements.get(remoteUserId);
         if (el) {
           el.srcObject = stream;
@@ -644,25 +723,32 @@ class NexconnService {
     if (typeof window === 'undefined' || !window.RTCPeerConnection || !signal) return;
 
     try {
+      this.unlockAudio();
       let pc = this.peers.get(fromUserId);
       if (!pc) {
+        let local = this.getLocalStream();
+        if (!local || local.getAudioTracks().length === 0) {
+          local = await this.ensureLocalMedia(true, false);
+        }
+
         const newPc = new RTCPeerConnection({
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
           ],
         });
         this.peers.set(fromUserId, newPc);
         pc = newPc;
 
-        const local = this.getLocalStream();
         if (local) {
-          local.getTracks().forEach((track) => newPc.addTrack(track, local));
+          local.getTracks().forEach((track) => newPc.addTrack(track, local!));
         }
 
         newPc.ontrack = (event) => {
           const stream = event.streams[0] || new MediaStream([event.track]);
           this.remoteStreams.set(fromUserId, stream);
+          this.playRemoteAudio(fromUserId, stream);
           const el = this.remoteVideoElements.get(fromUserId);
           if (el) {
             el.srcObject = stream;
@@ -675,6 +761,17 @@ class NexconnService {
             api.sendWebRtcSignal(fromUserId, { type: 'candidate', candidate: event.candidate }, callId).catch(() => {});
           }
         };
+      }
+
+      // Ensure all current local tracks are present on pc
+      const currentLocal = this.getLocalStream();
+      if (currentLocal && pc) {
+        const senders = pc.getSenders();
+        currentLocal.getTracks().forEach((t) => {
+          if (!senders.some((s) => s.track === t)) {
+            pc!.addTrack(t, currentLocal!);
+          }
+        });
       }
 
       if (signal.type === 'offer') {
@@ -766,13 +863,40 @@ class NexconnService {
     try {
       if (this.localStream) {
         const hasVideo = this.localStream.getVideoTracks().some((t) => t.readyState === 'live');
-        if (!video || hasVideo) return this.localStream;
+        const hasAudio = this.localStream.getAudioTracks().some((t) => t.readyState === 'live');
+        if ((!video || hasVideo) && (!audio || hasAudio)) return this.localStream;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: audio
+          ? {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            }
+          : false,
+        video: video
+          ? {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: 'user',
+            }
+          : false,
+      });
       this.localStream?.getTracks().forEach((t) => t.stop());
       this.localStream = stream;
       return stream;
-    } catch {
+    } catch (err: any) {
+      console.warn('[VoiceChat] getUserMedia error:', err);
+      if (audio && !video) {
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          this.localStream?.getTracks().forEach((t) => t.stop());
+          this.localStream = fallbackStream;
+          return fallbackStream;
+        } catch (fbErr) {
+          console.warn('[VoiceChat] Fallback getUserMedia error:', fbErr);
+        }
+      }
       return null;
     }
   }
@@ -790,6 +914,14 @@ class NexconnService {
     this.peers.clear();
     this.remoteStreams.clear();
     this.remoteVideoElements.clear();
+    this.remoteAudioElements.forEach((audio) => {
+      try {
+        audio.pause();
+        audio.srcObject = null;
+        audio.remove();
+      } catch {}
+    });
+    this.remoteAudioElements.clear();
   }
 }
 

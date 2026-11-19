@@ -294,6 +294,19 @@ export function App() {
     });
   }, []);
 
+  // Unlock mobile browser Web Audio on first user interaction
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      nexconn.unlockAudio();
+    };
+    window.addEventListener('click', handleFirstInteraction, { passive: true });
+    window.addEventListener('touchstart', handleFirstInteraction, { passive: true });
+    return () => {
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+  }, []);
+
   // Check existing session on startup
   useEffect(() => {
     (async () => {
@@ -655,6 +668,8 @@ export function App() {
 
   // ---------------------------------------------------------------- Voice & Call actions
   const joinVoiceChannel = async (srv: Server, ch: Channel) => {
+    nexconn.unlockAudio();
+    await nexconn.ensureLocalMedia(true, false);
     const res = await api.joinVoice(srv.id, ch.id);
     const peers = res.participants.filter((id) => id !== me?.id);
     let callId = res.callId;
@@ -690,6 +705,8 @@ export function App() {
   };
 
   const startDirectCall = async (userId: string, video: boolean) => {
+    nexconn.unlockAudio();
+    await nexconn.ensureLocalMedia(true, video);
     const u = users[userId];
     const callId = await nexconn.startCall({
       calleeIds: [userId],
@@ -733,6 +750,7 @@ export function App() {
     const nextDeaf = !callState.deafened;
     setCallState((prev) => ({ ...prev, deafened: nextDeaf, micMuted: nextDeaf ? true : prev.micMuted }));
     if (nextDeaf) await nexconn.toggleMic(false);
+    nexconn.setDeafened(nextDeaf);
     if (myVoice) await api.updateVoiceState({ deafened: nextDeaf, muted: nextDeaf ? true : callState.micMuted }).catch(() => {});
   };
 
@@ -2274,7 +2292,10 @@ export function App() {
           onAcceptAudio={async () => {
             const c = incomingCall;
             setIncomingCall(null);
+            nexconn.unlockAudio();
+            await nexconn.ensureLocalMedia(true, false);
             await nexconn.acceptCall(c.callId, false);
+            nexconn.connectToPeer(c.callerId, c.callId).catch(() => {});
             setCallState({
               status: 'connected',
               callId: c.callId,
@@ -2292,7 +2313,10 @@ export function App() {
           onAcceptVideo={async () => {
             const c = incomingCall;
             setIncomingCall(null);
+            nexconn.unlockAudio();
+            await nexconn.ensureLocalMedia(true, true);
             await nexconn.acceptCall(c.callId, true);
+            nexconn.connectToPeer(c.callerId, c.callId).catch(() => {});
             setCallState({
               status: 'connected',
               callId: c.callId,
