@@ -36,25 +36,6 @@ import { Avatar } from './Avatar';
 
 const COLORS = ['#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245', '#F47B67', '#3BA55C', '#FAA61A', '#9B84EE', '#1ABC9C'];
 
-function playSmsChime() {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.12, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.35);
-  } catch {}
-}
-
 // ========================================================================= Auth Screen
 interface AuthScreenProps {
   onLogin: (username: string, password: string) => Promise<void>;
@@ -70,7 +51,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
   const [phoneDigits, setPhoneDigits] = useState('');
   const [otp, setOtp] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [smsBanner, setSmsBanner] = useState<{ phone: string; code: string } | null>(null);
   const [cooldown, setCooldown] = useState(0);
 
   // Password fallback mode states
@@ -96,38 +76,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
     setBusy(true);
     try {
       if (serverUrl.trim()) setApiBase(serverUrl.trim());
-      const res = await api.sendOtp(fullPhone);
-      const code = res.devOtp || '123456';
-      setSmsBanner({ phone: res.phone, code });
+      await api.sendOtp(fullPhone);
       setMobileStep('otp');
       setCooldown(30);
-
-      // Play real-time chime & mobile vibration
-      playSmsChime();
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate([100, 50, 100]);
-      }
-
-      // Native desktop / mobile OS notification
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission === 'granted') {
-          try {
-            new Notification('📲 Nexcord SMS Verification', {
-              body: `Your OTP is ${code}. Valid for 10 minutes.`,
-            });
-          } catch {}
-        } else if (Notification.permission === 'default') {
-          Notification.requestPermission().then((perm) => {
-            if (perm === 'granted') {
-              try {
-                new Notification('📲 Nexcord SMS Verification', {
-                  body: `Your OTP is ${code}. Valid for 10 minutes.`,
-                });
-              } catch {}
-            }
-          });
-        }
-      }
 
       const timer = setInterval(() => {
         setCooldown((c) => {
@@ -294,46 +245,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
               </form>
             ) : (
               <form onSubmit={handleVerify} className="nc-auth-form">
-                <div style={{ textAlign: 'left', marginBottom: 8 }}>
+                <div style={{ textAlign: 'left', marginBottom: 14 }}>
                   <h2 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px', color: '#f2f3f5' }}>
                     Enter SMS Verification Code
                   </h2>
                   <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    Sent to <strong>{fullPhone}</strong>
+                    An SMS with your 6-digit code was sent to <strong>{fullPhone}</strong>. Check your phone's Messages app.
                   </p>
                 </div>
-
-                {smsBanner && (
-                  <div
-                    className="nc-sms-alert"
-                    onClick={() => setOtp(smsBanner.code)}
-                    title="Click to automatically fill code"
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="nc-sms-alert-icon">📲</div>
-                    <div className="nc-sms-alert-body" style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <strong>Incoming Real-Time SMS:</strong>
-                        <span style={{ fontSize: '11px', color: '#57F287', fontWeight: 700 }}>LIVE</span>
-                      </div>
-                      <span>
-                        Your code is <b style={{ fontSize: 16, letterSpacing: '2px', color: '#57F287' }}>{smsBanner.code}</b>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="nc-btn xs primary"
-                      style={{ marginLeft: 6, flexShrink: 0 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOtp(smsBanner.code);
-                        onVerifyOtp(fullPhone, smsBanner.code, displayName.trim() || undefined);
-                      }}
-                    >
-                      Autofill & Login
-                    </button>
-                  </div>
-                )}
 
                 <label className="nc-field">
                   <span>6-DIGIT SMS CODE</span>

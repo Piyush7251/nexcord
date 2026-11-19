@@ -232,12 +232,11 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
   res.json({
     ok: true,
     phone: clean,
-    devOtp: code,
     provider: smsResult.provider,
     deliveredToCarrier: smsResult.deliveredToCarrier,
     message: smsResult.deliveredToCarrier
       ? `SMS sent via ${smsResult.provider} to ${clean}`
-      : `Verification code generated for ${clean}`,
+      : `Verification code sent to ${clean}`,
   });
 }));
 
