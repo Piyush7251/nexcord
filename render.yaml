@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: nexcord
+    runtime: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXCONN_API_HOST
+        value: api.sg-light-api.com
+      - key: NEXCONN_API_HOST_BACKUP
+        value: api-b.sg-light-api.com
+      - key: NEXCONN_AREA_CODE
+        value: "2"
+      - key: NEXCONN_APP_KEY
+        sync: false
+      - key: NEXCONN_APP_SECRET
+        sync: false
+      - key: FAST2SMS_API_KEY
+        sync: false
+      - key: SMS_CLOUD_WEBHOOK_URL
+        sync: false
+      - key: SMS_CLOUD_WEBHOOK_AUTH
+        sync: false

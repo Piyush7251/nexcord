@@ -63,3 +63,29 @@ npm run build
 npx cap sync
 npx cap open android   # or: npx cap open ios
 ```
+
+---
+
+## 🌐 Live Free Cloud Hosting (Render / Railway)
+
+You can host Nexcord completely free online directly from your GitHub repository so your friends anywhere in the world can open it on their phones and laptops:
+
+### 1-Click Free Hosting on Render.com:
+1. Go to [Render.com](https://render.com) and sign in with your GitHub account.
+2. Click **New +** $\rightarrow$ **Web Service**.
+3. Select your repository: **`Piyush7251/nexcord`**.
+4. Configure:
+   * **Runtime:** `Node`
+   * **Build Command:** `npm run build`
+   * **Start Command:** `npm start`
+   * **Plan:** `Free`
+5. In **Environment Variables**, add:
+   * `NEXCONN_APP_KEY` = `n19jmcy5nw3q9`
+   * `NEXCONN_APP_SECRET` = `eVEaFOyCuiwv7`
+   * `NEXCONN_API_HOST` = `api.sg-light-api.com`
+   * `NEXCONN_API_HOST_BACKUP` = `api-b.sg-light-api.com`
+   * `NEXCONN_AREA_CODE` = `2`
+   * `FAST2SMS_API_KEY` = `your_fast2sms_key` *(optional)*
+   * `SMS_CLOUD_WEBHOOK_URL` = `https://api.sms-gate.app/3rdparty/v1/message` *(optional)*
+   * `SMS_CLOUD_WEBHOOK_AUTH` = `Basic VTBXSlctOnBldGZqZDhkbzdlYnJr` *(optional)*
+6. Click **Deploy Web Service**! Render will build and give you a free permanent HTTPS link (e.g. `https://nexcord.onrender.com`) that you can send to your friends.
