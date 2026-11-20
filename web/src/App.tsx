@@ -118,6 +118,17 @@ export function App() {
   const [activeChannelId, setActiveChannelId] = useState<string>('');
   const [activeDmUserId, setActiveDmUserId] = useState<string>('');
   const [friendsTab, setFriendsTab] = useState<'online' | 'all' | 'pending' | 'add'>('online');
+  const [contactMatches, setContactMatches] = useState<Array<{
+    user: User;
+    contactName: string;
+    phone: string;
+    isFriend: boolean;
+    hasPendingOutgoing: boolean;
+    hasPendingIncoming: boolean;
+  }>>([]);
+  const [contactInput, setContactInput] = useState('');
+  const [contactBusy, setContactBusy] = useState(false);
+  const [contactFeedback, setContactFeedback] = useState<string | null>(null);
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
   const [showMemberList, setShowMemberList] = useState(true);
   const [showPinsDrawer, setShowPinsDrawer] = useState(false);
@@ -1405,6 +1416,102 @@ export function App() {
                         {addFriendFeedback.text}
                       </div>
                     )}
+
+                    <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <Phone size={15} color="#5865F2" />
+                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#f2f3f5', letterSpacing: 0.5 }}>
+                          FIND FRIENDS FROM PHONE CONTACTS
+                        </h4>
+                      </div>
+                      <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#949ba4' }}>
+                        Check if people from your phone contacts are already on Nexcord and connect with them.
+                      </p>
+
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!contactInput.trim()) return;
+                          setContactFeedback(null);
+                          setContactBusy(true);
+                          try {
+                            const nums = contactInput.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
+                            const res = await api.matchContacts({ phoneNumbers: nums });
+                            setContactMatches(res.matches);
+                            setContactFeedback(`Scanned ${nums.length} numbers: found ${res.matches.length} matching friends on Nexcord!`);
+                          } catch (err: any) {
+                            setContactFeedback(err?.message || 'Failed to check contacts.');
+                          } finally {
+                            setContactBusy(false);
+                          }
+                        }}
+                        style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                      >
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input
+                            value={contactInput}
+                            onChange={(e) => setContactInput(e.target.value)}
+                            placeholder="Enter phone numbers (e.g. +91 98765 43210, +91 72518 80344)"
+                            style={{ flex: 1 }}
+                          />
+                          <button type="submit" className="nc-btn secondary" disabled={contactBusy || !contactInput.trim()}>
+                            {contactBusy ? 'Checking...' : 'Check Contacts'}
+                          </button>
+                        </div>
+                      </form>
+
+                      {contactFeedback && (
+                        <div className="nc-ok-banner" style={{ margin: '10px 0', fontSize: 12 }}>
+                          {contactFeedback}
+                        </div>
+                      )}
+
+                      {contactMatches.length > 0 && (
+                        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#949ba4', marginBottom: 4 }}>
+                            FOUND ON NEXCORD ({contactMatches.length})
+                          </div>
+                          {contactMatches.map((m) => (
+                            <div key={m.user.id} className="nc-friend-row">
+                              <Avatar user={m.user} size={34} showStatus />
+                              <div className="nc-friend-info">
+                                <strong>{m.contactName} {m.contactName !== m.user.displayName ? `(@${m.user.displayName})` : ''}</strong>
+                                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{m.phone}</span>
+                              </div>
+                              <div className="nc-friend-btns">
+                                {m.isFriend ? (
+                                  <button type="button" className="nc-btn xs secondary" onClick={() => openDm(m.user.id)}>
+                                    <MessageSquare size={13} />
+                                    <span>Message</span>
+                                  </button>
+                                ) : m.hasPendingOutgoing ? (
+                                  <span className="nc-muted" style={{ fontSize: 12 }}>Request Sent ⏳</span>
+                                ) : m.hasPendingIncoming ? (
+                                  <button type="button" className="nc-btn xs green" onClick={() => api.acceptFriend(m.user.id).then(runSync)}>
+                                    <Check size={13} />
+                                    <span>Accept</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="nc-btn xs primary"
+                                    onClick={async () => {
+                                      await api.requestFriend({ userId: m.user.id });
+                                      await runSync();
+                                      setContactMatches((prev) =>
+                                        prev.map((x) => (x.user.id === m.user.id ? { ...x, hasPendingOutgoing: true } : x)),
+                                      );
+                                    }}
+                                  >
+                                    <span>Add Friend</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : friendsTab === 'pending' ? (
                   <div className="nc-friend-list">
