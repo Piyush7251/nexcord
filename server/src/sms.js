@@ -1,5 +1,49 @@
-// Fast2SMS WhatsApp & Smart OTP Delivery Engine for Nexcord (₹0.25 / message)
-// Completely removed the expensive Quick SMS route (₹7.00).
+// Fast2SMS WhatsApp OTP Delivery Engine for Nexcord (₹0.25 / message)
+// Automatically connects to your approved Fast2SMS WhatsApp Cloud API template.
+
+let cachedWabaConfig = null;
+let lastWabaFetchTime = 0;
+
+async function getWabaConfig(apiKey) {
+  const now = Date.now();
+  if (cachedWabaConfig && (now - lastWabaFetchTime) < 60000) {
+    return cachedWabaConfig;
+  }
+
+  try {
+    const res = await fetch('https://www.fast2sms.com/dev/dlt_manager/whatsapp?type=template', {
+      headers: {
+        authorization: apiKey,
+        'Content-Type': 'application/json',
+      },
+    });
+    const json = await res.json();
+    if (json && json.success && Array.isArray(json.data) && json.data.length > 0) {
+      const waba = json.data[0];
+      const phoneId = String(waba.phone_number_id || '');
+      const templates = Array.isArray(waba.templates) ? waba.templates : [];
+
+      // Look for any approved template (preferring ones with 'otp', 'verify', or 'auth' in name)
+      const approved = templates.filter((t) => String(t.status || '').toLowerCase() === 'approved');
+      const otpTpl = approved.find((t) => /otp|verify|auth|code/i.test(t.template_name)) || approved[0];
+
+      if (otpTpl) {
+        cachedWabaConfig = {
+          phoneId: String(otpTpl.phone_number_id || phoneId),
+          messageId: String(otpTpl.message_id),
+          templateName: otpTpl.template_name,
+        };
+        lastWabaFetchTime = now;
+        console.log(`[Fast2SMS WhatsApp] Connected to approved template '${otpTpl.template_name}' (ID: ${otpTpl.message_id})`);
+        return cachedWabaConfig;
+      }
+    }
+  } catch (e) {
+    console.warn('[Fast2SMS WhatsApp] Failed to fetch template config:', e.message);
+  }
+
+  return null;
+}
 
 export async function sendSms({ phone, code }) {
   const cleanDigits = phone.replace(/\D/g, '');
@@ -14,69 +58,45 @@ export async function sendSms({ phone, code }) {
   };
 
   const fast2SmsKey = (process.env.FAST2SMS_API_KEY || '5kNcFJhtHIVtXGS87CJ0WpXkY8Ka1yUQP6rHCvsmowD3Sh4tTB4fHSMFXBEMltKyE3ZWQyaXjy6mPMAn').trim();
-  const otpId = (process.env.FAST2SMS_OTP_ID || '').trim();
+  let phoneId = (process.env.FAST2SMS_WABA_PHONE_ID || '1454063874454915').trim();
+  let messageId = (process.env.FAST2SMS_WABA_MESSAGE_ID || '').trim();
 
   if (!indianMobile) {
     results.details = `Invalid mobile number (${phone}). Expected 10-digit Indian number.`;
     return results;
   }
 
-  // 1. Send via Fast2SMS Smart OTP (WhatsApp, ₹0.25 per message)
-  if (fast2SmsKey && otpId) {
-    try {
-      const res = await fetch('https://www.fast2sms.com/dev/otp/send', {
-        method: 'POST',
-        headers: {
-          authorization: fast2SmsKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mobile: indianMobile,
-          otp_id: otpId,
-          otp: code,
-          otp_length: 6,
-          otp_expiry: 10,
-        }),
-      });
-
-      const data = await res.json();
-      if (data && data.return) {
-        console.log(`[Fast2SMS WhatsApp] Dispatched successfully to ${indianMobile}:`, data.message);
-        results.deliveredToCarrier = true;
-        results.details = `Delivered via Fast2SMS WhatsApp to ${phone}`;
-        return results;
-      }
-      console.warn('[Fast2SMS WhatsApp] Smart OTP response:', data);
-      results.details = data?.message || 'Fast2SMS WhatsApp dispatch error';
-    } catch (err) {
-      console.warn('[Fast2SMS WhatsApp] Network error:', err.message);
-      results.details = err.message;
+  // Auto-detect approved WhatsApp template if not explicitly pinned in env
+  if (!messageId) {
+    const autoCfg = await getWabaConfig(fast2SmsKey);
+    if (autoCfg) {
+      phoneId = autoCfg.phoneId;
+      messageId = autoCfg.messageId;
     }
   }
 
-  // 2. Direct WhatsApp template endpoint fallback (if phone_number_id & message_id are provided)
-  const phoneId = (process.env.FAST2SMS_WABA_PHONE_ID || '').trim();
-  const messageId = (process.env.FAST2SMS_WABA_MESSAGE_ID || '').trim();
-  if (fast2SmsKey && phoneId && messageId) {
+  if (fast2SmsKey && messageId) {
     try {
-      const url = `https://www.fast2sms.com/dev/whatsapp?message_id=${messageId}&phone_number_id=${phoneId}&numbers=${indianMobile}&variables_values=${code}`;
+      const url = `https://www.fast2sms.com/dev/whatsapp?message_id=${encodeURIComponent(messageId)}&phone_number_id=${encodeURIComponent(phoneId)}&numbers=${encodeURIComponent(indianMobile)}&variables_values=${encodeURIComponent(code)}`;
       const res = await fetch(url, {
         headers: { authorization: fast2SmsKey },
       });
       const data = await res.json();
-      if (data && (data.status || data.return)) {
-        console.log(`[Fast2SMS WhatsApp] Dispatched via WABA template to ${indianMobile}`);
+      if (data && (data.return || data.status || data.message === 'Message sent successfully')) {
+        console.log(`[Fast2SMS WhatsApp] Successfully dispatched to ${indianMobile}:`, data);
         results.deliveredToCarrier = true;
-        results.details = `Delivered via Fast2SMS WhatsApp to ${phone}`;
+        results.details = `Delivered via WhatsApp to ${phone}`;
         return results;
       }
-    } catch (err) {
-      console.warn('[Fast2SMS WhatsApp WABA] error:', err.message);
-    }
-  }
 
-  if (!otpId && !phoneId) {
-    results.details = 'FAST2SMS_OTP_ID is required to send WhatsApp OTP on Fast2SMS.';
+      console.warn('[Fast2SMS WhatsApp] Error response:', data);
+      results.details = data?.message || data?.errors?.message_id?.[0] || 'Fast2SMS WhatsApp dispatch error';
+    } catch (err) {
+      console.warn('[Fast2SMS WhatsApp] Network error:', err.message);
+      results.details = err.message;
+    }
+  } else {
+    results.details = 'Waiting for an approved WhatsApp Template in your Fast2SMS WhatsApp Manager.';
   }
 
   return results;
