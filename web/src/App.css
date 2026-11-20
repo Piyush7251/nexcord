@@ -881,11 +881,192 @@
   gap: 8px;
 }
 
+.nc-att-img-card {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: #111214;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  line-height: 0;
+}
+
+.nc-att-img-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(88, 101, 242, 0.6);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
 .nc-att-img {
   max-width: 340px;
   max-height: 260px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
+  display: block;
+  object-fit: cover;
+  transition: opacity 0.15s ease;
+}
+
+.nc-att-img-card:hover .nc-att-img {
+  opacity: 0.95;
+}
+
+.nc-att-img-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 5px;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+}
+
+.nc-att-img-card:hover .nc-att-img-actions {
+  opacity: 1;
+}
+
+.nc-att-btn {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.nc-att-btn:hover {
+  background: var(--blurple);
+  border-color: var(--blurple);
+  transform: scale(1.08);
+}
+
+/* Lightbox Fullscreen */
+.nc-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  animation: nc-lightbox-fade 0.2s ease-out;
+}
+
+@keyframes nc-lightbox-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.nc-lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0) 100%);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.nc-lightbox-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.nc-lightbox-name {
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nc-lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nc-lightbox-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  transition: all 0.15s ease;
+}
+
+.nc-lightbox-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.nc-lightbox-btn.primary {
+  background: var(--blurple);
+  border-color: var(--blurple);
+}
+
+.nc-lightbox-btn.primary:hover {
+  background: #4752c4;
+}
+
+.nc-lightbox-btn.close {
+  padding: 7px 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.nc-lightbox-btn.close:hover {
+  background: rgba(242, 63, 67, 0.8);
+  border-color: #f23f43;
+}
+
+.nc-lightbox-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nc-lightbox-img {
+  max-width: 95vw;
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8);
+  animation: nc-lightbox-zoom 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes nc-lightbox-zoom {
+  from {
+    transform: scale(0.92);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .nc-att-file {
@@ -3352,10 +3533,37 @@
     font-size: 9.5px;
   }
 
+  .nc-att-img-card {
+    max-width: 100%;
+  }
+
   .nc-att-img {
     max-width: 100% !important;
     height: auto;
     max-height: 220px;
+  }
+
+  .nc-att-img-actions {
+    opacity: 1;
+  }
+
+  .nc-lightbox-bar {
+    padding: 8px 12px;
+  }
+
+  .nc-lightbox-name {
+    max-width: 160px;
+    font-size: 12px;
+  }
+
+  .nc-lightbox-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .nc-lightbox-img {
+    max-width: 98vw;
+    max-height: 82vh;
   }
 
   .nc-att-file {

@@ -7,11 +7,13 @@ import {
   ChevronRight,
   Copy,
   CornerUpLeft,
+  Download,
   Edit3,
   Gamepad2,
   Hash,
   Headphones,
   ImagePlus,
+  Maximize2,
   Megaphone,
   Menu,
   MessageSquare,
@@ -98,6 +100,40 @@ function renderMessageText(text: string): React.ReactNode {
   });
 }
 
+function downloadFile(dataUrl: string, filename: string) {
+  try {
+    if (dataUrl.startsWith('data:')) {
+      const parts = dataUrl.split(',');
+      const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+      const bstr = atob(parts[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      const blob = new Blob([u8arr], { type: mime });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'downloaded-image.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      return;
+    }
+
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename || 'downloaded-image.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch {
+    window.open(dataUrl, '_blank');
+  }
+}
+
 export function App() {
   const [me, setMe] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -130,6 +166,7 @@ export function App() {
   const [showMemberList, setShowMemberList] = useState(true);
   const [showPinsDrawer, setShowPinsDrawer] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<{ url: string; name: string } | null>(null);
 
   // Chat state
   const [messagesByKey, setMessagesByKey] = useState<Record<string, ChatMessage[]>>({});
@@ -613,17 +650,19 @@ export function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeMessages.length, activeTargetKey]);
 
-  // Ctrl+K Quick Switcher
+  // Ctrl+K Quick Switcher & Escape dismissals
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setShowQuickSwitcher((v) => !v);
+      } else if (e.key === 'Escape' && fullscreenImage) {
+        setFullscreenImage(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [fullscreenImage]);
 
   // ---------------------------------------------------------------- Auth actions
   const handleLogin = async (username: string, password: string) => {
@@ -1882,7 +1921,38 @@ export function App() {
                             <div className="nc-attachments">
                               {m.attachments.map((att, ai) =>
                                 att.isImage ? (
-                                  <img key={ai} src={att.dataUrl} alt={att.name} className="nc-att-img" />
+                                  <div
+                                    key={ai}
+                                    className="nc-att-img-card"
+                                    onClick={() => setFullscreenImage({ url: att.dataUrl, name: att.name || 'image.png' })}
+                                    title="Click to view full screen"
+                                  >
+                                    <img src={att.dataUrl} alt={att.name} className="nc-att-img" />
+                                    <div className="nc-att-img-actions">
+                                      <button
+                                        type="button"
+                                        className="nc-att-btn"
+                                        title="View Fullscreen"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setFullscreenImage({ url: att.dataUrl, name: att.name || 'image.png' });
+                                        }}
+                                      >
+                                        <Maximize2 size={15} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="nc-att-btn"
+                                        title="Download Image"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          downloadFile(att.dataUrl, att.name || 'image.png');
+                                        }}
+                                      >
+                                        <Download size={15} />
+                                      </button>
+                                    </div>
+                                  </div>
                                 ) : (
                                   <a key={ai} href={att.dataUrl} download={att.name} className="nc-att-file">
                                     <Paperclip size={15} />
@@ -2457,6 +2527,46 @@ export function App() {
           currentUser={me}
           onClose={() => setShowAdminModal(false)}
         />
+      )}
+
+      {fullscreenImage && (
+        <div
+          className="nc-lightbox-overlay"
+          onClick={() => setFullscreenImage(null)}
+        >
+          <div className="nc-lightbox-bar" onClick={(e) => e.stopPropagation()}>
+            <div className="nc-lightbox-title">
+              <span className="nc-lightbox-name">{fullscreenImage.name}</span>
+            </div>
+            <div className="nc-lightbox-actions">
+              <button
+                type="button"
+                className="nc-lightbox-btn primary"
+                onClick={() => downloadFile(fullscreenImage.url, fullscreenImage.name)}
+                title="Download this picture"
+              >
+                <Download size={16} />
+                <span>Download</span>
+              </button>
+              <button
+                type="button"
+                className="nc-lightbox-btn close"
+                onClick={() => setFullscreenImage(null)}
+                title="Close Fullscreen (Esc)"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          </div>
+          <div className="nc-lightbox-content" onClick={() => setFullscreenImage(null)}>
+            <img
+              src={fullscreenImage.url}
+              alt={fullscreenImage.name}
+              className="nc-lightbox-img"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
