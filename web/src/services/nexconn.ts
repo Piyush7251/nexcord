@@ -78,7 +78,11 @@ class NexconnService {
   private seenSignals: Set<string> = new Set();
   private iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: 'stun:stun.nextcloud.com:443' },
   ];
 
   setCurrentUser(userId: string) {
@@ -105,7 +109,12 @@ class NexconnService {
   }
 
   getPeerConnectionState(userId: string): RTCPeerConnectionState | 'new' {
-    return this.peers.get(userId)?.connectionState || 'new';
+    const pc = this.peers.get(userId);
+    if (!pc) return 'new';
+    if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+      return 'connected';
+    }
+    return pc.connectionState || 'new';
   }
 
   setCallbacks(cb: NexconnCallbacks) {
@@ -974,15 +983,19 @@ class NexconnService {
     if (typeof window === 'undefined' || !window.RTCPeerConnection || !signal) return;
     if (callId) this.currentCallId = callId;
 
-    const sigKey = `${fromUserId}:${signal.type}:${signal.sdp ? signal.sdp.slice(0, 120) : signal.candidate?.candidate || ''}`;
-    if (this.seenSignals.has(sigKey)) return;
-    this.seenSignals.add(sigKey);
-    if (this.seenSignals.size > 300) {
-      const first = this.seenSignals.values().next().value;
-      if (first) this.seenSignals.delete(first);
-    }
-
     try {
+      const sdpStr = typeof signal.sdp === 'string' ? signal.sdp : (signal.sdp?.sdp || '');
+      const candStr = typeof signal.candidate === 'string' ? signal.candidate : (signal.candidate?.candidate || '');
+      const sigKey = `${fromUserId}:${signal.type}:${(sdpStr || candStr).slice(0, 80)}`;
+      if (sigKey && this.seenSignals.has(sigKey)) return;
+      if (sigKey) {
+        this.seenSignals.add(sigKey);
+        if (this.seenSignals.size > 300) {
+          const first = this.seenSignals.values().next().value;
+          if (first) this.seenSignals.delete(first);
+        }
+      }
+
       this.unlockAudio();
       let pc = this.peers.get(fromUserId);
       if (!pc || pc.signalingState === 'closed') {
@@ -994,7 +1007,8 @@ class NexconnService {
         const queued = this.pendingCandidates.get(fromUserId) || [];
         for (const cand of queued) {
           try {
-            await pc!.addIceCandidate(new RTCIceCandidate(cand));
+            const candInit = (typeof cand === 'object' && cand !== null) ? cand : { candidate: cand };
+            await pc!.addIceCandidate(new RTCIceCandidate(candInit));
           } catch {}
         }
         this.pendingCandidates.delete(fromUserId);
@@ -1010,7 +1024,10 @@ class NexconnService {
           await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
         }
 
-        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        const descInit: RTCSessionDescriptionInit = (typeof signal.sdp === 'object' && signal.sdp !== null)
+          ? signal.sdp
+          : { type: signal.type, sdp: sdpStr };
+        await pc.setRemoteDescription(new RTCSessionDescription(descInit));
         await drainCandidates();
         await this.syncTracksToPeers(false);
         const answer = await pc.createAnswer();
@@ -1021,22 +1038,28 @@ class NexconnService {
         this.log('call', 'WebRTC.answerSent', `to=${fromUserId}`, 'ok');
       } else if (signal.type === 'answer') {
         if (pc.signalingState === 'have-local-offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          const descInit: RTCSessionDescriptionInit = (typeof signal.sdp === 'object' && signal.sdp !== null)
+            ? signal.sdp
+            : { type: signal.type, sdp: sdpStr };
+          await pc.setRemoteDescription(new RTCSessionDescription(descInit));
           await drainCandidates();
           this.log('call', 'WebRTC.connected', `from=${fromUserId}`, 'ok');
           await this.syncTracksToPeers(false);
         }
       } else if (signal.type === 'candidate' && signal.candidate) {
+        const candInit = (typeof signal.candidate === 'object' && signal.candidate !== null)
+          ? signal.candidate
+          : { candidate: signal.candidate };
         if (!pc.remoteDescription || !pc.remoteDescription.type) {
           const queued = this.pendingCandidates.get(fromUserId) || [];
-          queued.push(signal.candidate);
+          queued.push(candInit);
           this.pendingCandidates.set(fromUserId, queued);
         } else {
           try {
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            await pc.addIceCandidate(new RTCIceCandidate(candInit));
           } catch {
             const queued = this.pendingCandidates.get(fromUserId) || [];
-            queued.push(signal.candidate);
+            queued.push(candInit);
             this.pendingCandidates.set(fromUserId, queued);
           }
         }
