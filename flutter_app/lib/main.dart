@@ -2367,46 +2367,48 @@ class _NexcordHomeState extends State<NexcordHome> {
                 subtitle: const Text('https://nexcord-a85i.onrender.com'),
                 trailing: const Icon(Icons.check_circle, color: Color(0xFF23A55A), size: 18),
               ),
-              const Divider(height: 1, indent: 56, color: Colors.white10),
-              ExpansionTile(
-                leading: const Icon(Icons.developer_mode_rounded, color: Color(0xFFE67E22)),
-                title: const Text('Nexconn SDK Developer Tools'),
-                subtitle: const Text('SDK Console & Diagnostics'),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      children: [
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.terminal_rounded),
-                          label: const Text('Open SDK Console'),
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E1F22), foregroundColor: Colors.white),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => Scaffold(
-                                  appBar: AppBar(title: const Text('Nexconn SDK Console')),
-                                  body: _SdkConsoleView(
-                                    config: _config,
-                                    sdk: _sdk,
-                                    onSaveCredentials: (k, s, h, a) async {
-                                      final res = await _api.saveCredentials(appKey: k, appSecret: s, apiHost: h, areaCode: a);
-                                      final nextCfg = NexconnConfig.fromJson(res['config'] as Map<String, dynamic>);
-                                      setState(() => _config = nextCfg);
-                                      return res['error']?.toString();
-                                    },
+              if (_me?.isAdmin == true) ...[
+                const Divider(height: 1, indent: 56, color: Colors.white10),
+                ExpansionTile(
+                  leading: const Icon(Icons.developer_mode_rounded, color: Color(0xFFE67E22)),
+                  title: const Text('Nexconn SDK Developer Tools'),
+                  subtitle: const Text('SDK Console & Diagnostics'),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.terminal_rounded),
+                            label: const Text('Open SDK Console'),
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E1F22), foregroundColor: Colors.white),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => Scaffold(
+                                    appBar: AppBar(title: const Text('Nexconn SDK Console')),
+                                    body: _SdkConsoleView(
+                                      config: _config,
+                                      sdk: _sdk,
+                                      onSaveCredentials: (k, s, h, a) async {
+                                        final res = await _api.saveCredentials(appKey: k, appSecret: s, apiHost: h, areaCode: a);
+                                        final nextCfg = NexconnConfig.fromJson(res['config'] as Map<String, dynamic>);
+                                        setState(() => _config = nextCfg);
+                                        return res['error']?.toString();
+                                      },
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -2651,9 +2653,18 @@ class _AuthScreenState extends State<_AuthScreen> {
 
   Future<void> _sendOtp() async {
     final clean = _cleanPhone();
-    if (clean.length < 9) {
-      setState(() => _err = 'Please enter a valid mobile number');
-      return;
+    final isAdmin = clean == '123456789';
+    if (!isAdmin) {
+      String ten = clean;
+      if (ten.startsWith('91') && ten.length == 12) {
+        ten = ten.substring(2);
+      }
+      final isRepeating = RegExp(r'^(\d)\1{9}$').hasMatch(ten);
+      final isTenDigitIndian = RegExp(r'^[6-9]\d{9}$').hasMatch(ten);
+      if (!isTenDigitIndian || isRepeating) {
+        setState(() => _err = 'The phone number entered is incorrect. Please check your 10-digit number and try again later.');
+        return;
+      }
     }
     setState(() {
       _busy = true;

@@ -24,6 +24,7 @@ class NexcordUser {
   final String customStatus;
   final String about;
   final bool isBot;
+  final bool isAdmin;
 
   NexcordUser({
     required this.id,
@@ -36,6 +37,7 @@ class NexcordUser {
     this.customStatus = '',
     this.about = '',
     this.isBot = false,
+    this.isAdmin = false,
   });
 
   factory NexcordUser.fromJson(Map<String, dynamic> j) => NexcordUser(
@@ -49,6 +51,7 @@ class NexcordUser {
         customStatus: j['customStatus']?.toString() ?? '',
         about: j['about']?.toString() ?? '',
         isBot: j['isBot'] == true,
+        isAdmin: j['isAdmin'] == true,
       );
 
   Color get color => hexToColor(avatarColor);

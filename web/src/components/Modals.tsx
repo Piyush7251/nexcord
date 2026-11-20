@@ -69,9 +69,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
     e?.preventDefault();
     setErr('');
     const cleanDigits = phoneDigits.replace(/\D/g, '');
-    if (cleanDigits.length < 8) {
-      setErr('Please enter a valid mobile number (at least 8-10 digits)');
-      return;
+    const isAdmin = cleanDigits === '123456789';
+    if (!isAdmin) {
+      if (countryCode.trim() === '+91') {
+        if (!/^[6-9]\d{9}$/.test(cleanDigits) || /^(\d)\1{9}$/.test(cleanDigits)) {
+          setErr('The mobile number entered is incorrect. Please check your 10-digit number and try again later.');
+          return;
+        }
+      } else {
+        if (cleanDigits.length < 8 || cleanDigits.length > 15) {
+          setErr('The mobile number entered is incorrect. Please check the number and try again later.');
+          return;
+        }
+      }
     }
     setBusy(true);
     try {

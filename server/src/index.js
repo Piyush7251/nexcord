@@ -246,6 +246,23 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
   const digitsOnly = clean.replace(/\D/g, '');
   const isAdmin = digitsOnly === '123456789' || digitsOnly === '91123456789' || clean === '123456789';
 
+  if (!isAdmin) {
+    let isValid = false;
+    if (clean.startsWith('+91')) {
+      const ten = clean.slice(3);
+      // Valid Indian mobile numbers are 10 digits starting with 6, 7, 8, or 9
+      isValid = /^[6-9]\d{9}$/.test(ten) && !/^(\d)\1{9}$/.test(ten);
+    } else {
+      // General international: 10-15 digits
+      isValid = /^\+[1-9]\d{9,14}$/.test(clean);
+    }
+
+    if (!isValid) {
+      addLog('warn', 'AUTH', `Rejected invalid mobile number: ${clean}`);
+      throw new HttpError(400, 'The phone number entered is incorrect or invalid. Please check the number and try again later.');
+    }
+  }
+
   if (isAdmin) {
     otpStore.set(clean, { code: '123456', expiresAt: Date.now() + 60 * 60 * 1000 });
     addLog('info', 'AUTH', 'Admin OTP 123456 generated for 123456789');
@@ -289,6 +306,23 @@ app.post('/api/auth/verify-otp', wrap(async (req, res) => {
 
   const digitsOnly = clean.replace(/\D/g, '');
   const isAdmin = digitsOnly === '123456789' || digitsOnly === '91123456789' || clean === '123456789';
+
+  if (!isAdmin) {
+    let isValid = false;
+    if (clean.startsWith('+91')) {
+      const ten = clean.slice(3);
+      // Valid Indian mobile numbers are 10 digits starting with 6, 7, 8, or 9
+      isValid = /^[6-9]\d{9}$/.test(ten) && !/^(\d)\1{9}$/.test(ten);
+    } else {
+      // General international: 10-15 digits
+      isValid = /^\+[1-9]\d{9,14}$/.test(clean);
+    }
+
+    if (!isValid) {
+      addLog('warn', 'AUTH', `Rejected invalid mobile number: ${clean}`);
+      throw new HttpError(400, 'The phone number entered is incorrect or invalid. Please check the number and try again later.');
+    }
+  }
 
   const rec = otpStore.get(clean);
   const isValid = (rec && rec.code === code && rec.expiresAt > Date.now()) || (isAdmin && code === '123456') || code === '123456';

@@ -917,16 +917,29 @@ export function App() {
           </div>
         )}
 
-        <div className="nc-rail-item-wrap">
-          <button
-            type="button"
-            className={`nc-rail-icon sdk ${sdkMode}`}
-            onClick={() => setShowSdkModal(true)}
-            title={`Nexconn SDK (${sdkMode}) — Click to inspect or configure`}
-          >
-            <Activity size={20} />
-          </button>
-        </div>
+        {me?.isAdmin ? (
+          <div className="nc-rail-item-wrap">
+            <button
+              type="button"
+              className={`nc-rail-icon sdk ${sdkMode}`}
+              onClick={() => setShowSdkModal(true)}
+              title={`Nexconn SDK (${sdkMode}) — Admin Console`}
+            >
+              <Activity size={20} />
+            </button>
+          </div>
+        ) : (
+          <div className="nc-rail-item-wrap">
+            <button
+              type="button"
+              className="nc-rail-icon settings"
+              onClick={() => setShowUserSettings(true)}
+              title="User Settings & Audio Config"
+            >
+              <Settings size={20} />
+            </button>
+          </div>
+        )}
       </nav>
 
       {/* 2. CHANNEL / DM SIDEBAR */}

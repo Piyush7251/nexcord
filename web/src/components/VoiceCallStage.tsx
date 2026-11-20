@@ -10,11 +10,13 @@ import {
   UserPlus,
   Video,
   VideoOff,
+  Volume2,
   VolumeX,
 } from 'lucide-react';
 import type { CallSessionState, Channel, User, VoiceParticipant } from '../types';
 import { nexconn } from '../services/nexconn';
 import { Avatar } from './Avatar';
+import { SOUNDS, playSoundEffect } from '../services/soundboard';
 
 interface VoiceCallStageProps {
   channel?: Channel | null;
@@ -46,6 +48,7 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const [showInvite, setShowInvite] = useState(false);
+  const [showSoundboard, setShowSoundboard] = useState(false);
 
   useEffect(() => {
     if ((callState.cameraEnabled || callState.screenSharing) && localVideoRef.current) {
@@ -201,6 +204,66 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
         >
           <MonitorUp size={20} />
         </button>
+
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            className={`nc-dock-btn ${showSoundboard ? 'active' : ''}`}
+            onClick={() => setShowSoundboard((v) => !v)}
+            title="Squad Soundboard 🔊"
+          >
+            <Volume2 size={20} />
+          </button>
+          {showSoundboard && (
+            <div style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              marginBottom: 12,
+              background: '#1e1f22',
+              borderRadius: 14,
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              padding: 12,
+              width: 250,
+              boxShadow: '0 12px 32px rgba(0,0,0,0.6)',
+              zIndex: 100,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, fontSize: 11, fontWeight: 700, color: '#949ba4', letterSpacing: 0.5 }}>
+                <span>SQUAD SOUNDBOARD 🔊</span>
+                <span style={{ fontSize: 10, color: '#57F287', background: 'rgba(87,242,135,0.15)', padding: '1px 5px', borderRadius: 4 }}>LIVE SFX</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {SOUNDS.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    style={{
+                      background: '#2b2d31',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: 8,
+                      padding: '8px 10px',
+                      color: '#fff',
+                      fontSize: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#383a40')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#2b2d31')}
+                    onClick={() => playSoundEffect(s.id)}
+                  >
+                    <span style={{ fontSize: 16 }}>{s.emoji}</span>
+                    <span style={{ fontWeight: 600 }}>{s.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         <button
           type="button"
