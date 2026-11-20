@@ -592,10 +592,11 @@ class NexconnService {
       }
     }
     const stream = this.getLocalStream();
-    if (stream) {
-      const videoTrack = stream.getVideoTracks().find((t) => t.readyState === 'live');
+    const videoTrack = stream?.getVideoTracks().find((t) => t.readyState === 'live') || null;
+    const curTrack = (videoElement.srcObject as MediaStream)?.getVideoTracks()[0] || null;
+    if (curTrack !== videoTrack) {
+      videoElement.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
       if (videoTrack) {
-        videoElement.srcObject = new MediaStream([videoTrack]);
         videoElement.play().catch(() => {});
       }
     }
@@ -608,10 +609,11 @@ class NexconnService {
     }
     this.remoteVideoElements.set(userId, videoElement);
     const existingStream = this.remoteStreams.get(userId);
-    if (existingStream) {
-      const videoTrack = existingStream.getVideoTracks().find((t) => t.readyState === 'live');
+    const videoTrack = existingStream?.getVideoTracks().find((t) => t.readyState === 'live') || null;
+    const curTrack = (videoElement.srcObject as MediaStream)?.getVideoTracks()[0] || null;
+    if (curTrack !== videoTrack) {
+      videoElement.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
       if (videoTrack) {
-        videoElement.srcObject = new MediaStream([videoTrack]);
         videoElement.play().catch(() => {});
       }
     }
@@ -667,13 +669,18 @@ class NexconnService {
         this.remoteAudioElements.set(userId, audio);
       }
 
-      audio.muted = this.isDeafened;
-      audio.srcObject = new MediaStream([audioTrack]);
-      const p = audio.play();
-      if (p !== undefined) {
-        p.catch((err) => {
-          console.warn(`[VoiceChat] Autoplay audio for ${userId} waiting for interaction:`, err);
-        });
+      if (audio.muted !== this.isDeafened) {
+        audio.muted = this.isDeafened;
+      }
+      const curAudioTrack = (audio.srcObject as MediaStream)?.getAudioTracks()[0] || null;
+      if (curAudioTrack !== audioTrack) {
+        audio.srcObject = new MediaStream([audioTrack]);
+        const p = audio.play();
+        if (p !== undefined) {
+          p.catch((err) => {
+            console.warn(`[VoiceChat] Autoplay audio for ${userId} waiting for interaction:`, err);
+          });
+        }
       }
       this.log('call', 'VoiceChat.remoteAudioAttached', `userId=${userId}`, 'ok');
     } catch (e: any) {
@@ -787,8 +794,11 @@ class NexconnService {
       if (event.track.kind === 'video') {
         const el = this.remoteVideoElements.get(remoteUserId);
         if (el) {
-          el.srcObject = new MediaStream([event.track]);
-          el.play().catch(() => {});
+          const curTrack = (el.srcObject as MediaStream)?.getVideoTracks()[0] || null;
+          if (curTrack !== event.track) {
+            el.srcObject = new MediaStream([event.track]);
+            el.play().catch(() => {});
+          }
         }
       }
     };
@@ -847,22 +857,18 @@ class NexconnService {
         if (liveVideo) {
           if (videoTransceiver.direction !== 'sendrecv') {
             videoTransceiver.direction = 'sendrecv';
-            needsRenegotiation = true;
           }
           if (videoTransceiver.sender.track !== liveVideo) {
             await videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
-            needsRenegotiation = true;
           }
         } else {
           if (videoTransceiver.sender.track !== null) {
             await videoTransceiver.sender.replaceTrack(null).catch(() => {});
-            needsRenegotiation = true;
           }
         }
       } else if (liveVideo) {
         try {
           pc.addTrack(liveVideo, broadcastStream);
-          needsRenegotiation = true;
         } catch {}
       }
 

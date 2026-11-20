@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Headphones,
   Mic,
@@ -50,17 +50,25 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   const [showInvite, setShowInvite] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
 
-  const participantIds = Array.from(
-    new Set([
-      me.id,
-      ...voiceParticipants.map((v) => v.userId),
-      ...callState.peerIds,
-    ]),
+  const participantIds = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          me.id,
+          ...voiceParticipants.map((v) => v.userId),
+          ...callState.peerIds,
+        ]),
+      ),
+    [me.id, voiceParticipants, callState.peerIds],
   );
 
   useEffect(() => {
-    if ((callState.cameraEnabled || callState.screenSharing) && localVideoRef.current) {
-      nexconn.bindLocalVideo(localVideoRef.current);
+    if (localVideoRef.current) {
+      if (callState.cameraEnabled || callState.screenSharing) {
+        nexconn.bindLocalVideo(localVideoRef.current);
+      } else {
+        localVideoRef.current.srcObject = null;
+      }
     }
   }, [callState.cameraEnabled, callState.screenSharing]);
 
@@ -71,7 +79,7 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
         if (el) nexconn.bindRemoteVideo(pid, el);
       }
     });
-  }, [participantIds, voiceParticipants, callState.peerIds]);
+  }, [participantIds, voiceParticipants]);
 
   const inviteCandidates = Object.values(users).filter(
     (u) => u.id !== me.id && !participantIds.includes(u.id),
@@ -140,10 +148,8 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
                 ref={(el) => {
                   if (isMe) {
                     (localVideoRef as any).current = el;
-                    if (el && hasVideo) nexconn.bindLocalVideo(el);
                   } else {
                     remoteVideoRefs.current[uid] = el;
-                    if (el) nexconn.bindRemoteVideo(uid, el);
                   }
                 }}
                 autoPlay
