@@ -322,6 +322,16 @@ export function App() {
     return list.filter((m) => m.text.toLowerCase().includes(q));
   }, [messagesByKey, activeTargetKey, searchQuery]);
 
+  const currentPins: PinnedMessageSnapshot[] = useMemo(() => {
+    if (activeServer && activeChannel && activeServer.pins) {
+      return activeServer.pins[activeChannel.id] || [];
+    }
+    if (viewMode === 'home' && activeTargetKey && dmPins) {
+      return dmPins[activeTargetKey] || [];
+    }
+    return [];
+  }, [activeServer, activeChannel, viewMode, activeTargetKey, dmPins]);
+
   // ---------------------------------------------------------------- sync & boot
   const runSync = useCallback(async () => {
     const data = await api.sync();
@@ -821,6 +831,32 @@ export function App() {
     }));
   };
 
+  const togglePinMessage = async (m: ChatMessage) => {
+    const isPinned = currentPins.some((p) => p.id === m.id);
+    const snapshot: PinnedMessageSnapshot = {
+      id: m.id,
+      senderId: m.senderId,
+      text: m.text,
+      createdAt: m.createdAt,
+      attachments: m.attachments || [],
+    };
+    if (isPinned) {
+      if (activeServer && activeChannel) {
+        await api.unpinMessage(activeServer.id, activeChannel.id, m.id).catch(() => {});
+      } else if (activeTargetKey) {
+        await api.unpinDmMessage(activeTargetKey, m.id).catch(() => {});
+      }
+    } else {
+      if (activeServer && activeChannel) {
+        await api.pinMessage(activeServer.id, activeChannel.id, snapshot).catch(() => {});
+      } else if (activeTargetKey) {
+        await api.pinDmMessage(activeTargetKey, snapshot).catch(() => {});
+      }
+      setShowPinsDrawer(true);
+    }
+    await runSync();
+  };
+
   // ---------------------------------------------------------------- Voice & Call actions
   const joinVoiceChannel = async (srv: Server, ch: Channel) => {
     nexconn.unlockAudio();
@@ -969,41 +1005,6 @@ export function App() {
     .map(([, v]) => v.name);
 
   const dmUser = activeDmUserId ? users[activeDmUserId] : null;
-  const currentPins: PinnedMessageSnapshot[] = useMemo(() => {
-    if (activeServer && activeChannel) {
-      return activeServer.pins[activeChannel.id] || [];
-    }
-    if (viewMode === 'home' && activeTargetKey) {
-      return dmPins[activeTargetKey] || [];
-    }
-    return [];
-  }, [activeServer, activeChannel, viewMode, activeTargetKey, dmPins]);
-
-  const togglePinMessage = async (m: ChatMessage) => {
-    const isPinned = currentPins.some((p) => p.id === m.id);
-    const snapshot: PinnedMessageSnapshot = {
-      id: m.id,
-      senderId: m.senderId,
-      text: m.text,
-      createdAt: m.createdAt,
-      attachments: m.attachments || [],
-    };
-    if (isPinned) {
-      if (activeServer && activeChannel) {
-        await api.unpinMessage(activeServer.id, activeChannel.id, m.id).catch(() => {});
-      } else if (activeTargetKey) {
-        await api.unpinDmMessage(activeTargetKey, m.id).catch(() => {});
-      }
-    } else {
-      if (activeServer && activeChannel) {
-        await api.pinMessage(activeServer.id, activeChannel.id, snapshot).catch(() => {});
-      } else if (activeTargetKey) {
-        await api.pinDmMessage(activeTargetKey, snapshot).catch(() => {});
-      }
-      setShowPinsDrawer(true);
-    }
-    await runSync();
-  };
 
   return (
     <div className="nc-shell">
