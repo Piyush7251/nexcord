@@ -47,7 +47,6 @@ import type {
   ReplyReference,
   SdkLogEntry,
   Server,
-  SquadLobbyState,
   User,
 } from './types';
 import { api, getApiBase, getSessionToken, setSessionToken } from './services/api';
@@ -55,7 +54,6 @@ import { nexconn, targetKeyOf } from './services/nexconn';
 import type { ChannelTarget, SdkConnectionMode } from './services/nexconn';
 import { Avatar } from './components/Avatar';
 import { QuickChatBar } from './components/QuickChatBar';
-import { SquadLobbyBanner } from './components/SquadLobbyBanner';
 import { LiveStreamStage } from './components/LiveStreamStage';
 import { IncomingCallModal, VoiceCallStage } from './components/VoiceCallStage';
 import {
@@ -109,7 +107,6 @@ export function App() {
   const [incomingReq, setIncomingReq] = useState<string[]>([]);
   const [outgoingReq, setOutgoingReq] = useState<string[]>([]);
   const [dms, setDms] = useState<string[]>([]);
-  const [squadState, setSquadState] = useState<Record<string, SquadLobbyState>>({});
   const [myVoice, setMyVoice] = useState<{ serverId: string; channelId: string } | null>(null);
 
   // Navigation
@@ -132,7 +129,6 @@ export function App() {
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
   const [showMemberList, setShowMemberList] = useState(true);
   const [showPinsDrawer, setShowPinsDrawer] = useState(false);
-  const [showSquadBannerOverride, setShowSquadBannerOverride] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Chat state
@@ -297,7 +293,6 @@ export function App() {
     setIncomingReq(data.incoming);
     setOutgoingReq(data.outgoing);
     setDms(data.dms);
-    setSquadState(data.squadState || {});
     setMyVoice(data.myVoice);
 
     if (data.myVoice) {
@@ -442,14 +437,7 @@ export function App() {
         // ignore
       }
     });
-    es.addEventListener('squad', (e: MessageEvent) => {
-      try {
-        const { key, state } = JSON.parse(e.data);
-        setSquadState((prev) => ({ ...prev, [key]: state }));
-      } catch {
-        // ignore
-      }
-    });
+
     es.addEventListener('webrtc-signal', (e: MessageEvent) => {
       try {
         const { from, signal, callId } = JSON.parse(e.data);
@@ -924,7 +912,6 @@ export function App() {
     );
   }
 
-  const isSquadRoom = activeChannel?.name === 'squad-chat-room' || showSquadBannerOverride;
   const activeVoiceChannel = myVoice
     ? servers.find((s) => s.id === myVoice.serverId)?.channels.find((c) => c.id === myVoice.channelId) || null
     : null;
@@ -1439,14 +1426,6 @@ export function App() {
               <>
                 <button
                   type="button"
-                  className={`nc-icon-btn ${isSquadRoom ? 'active' : ''}`}
-                  onClick={() => setShowSquadBannerOverride((v) => !v)}
-                  title="Toggle Squad Room Lobby & Tactical Map"
-                >
-                  <Gamepad2 size={18} />
-                </button>
-                <button
-                  type="button"
                   className={`nc-icon-btn ${showPinsDrawer ? 'active' : ''} desktop-only`}
                   onClick={() => setShowPinsDrawer((v) => !v)}
                   title="Pinned Messages"
@@ -1802,27 +1781,6 @@ export function App() {
             {/* Case D: Standard Text / Squad Chat Room / DM Chat */}
             {activeTarget && activeChannel?.type !== 'live' && !isViewingVoiceStage && (
               <div className="nc-chat-stage">
-                {viewMode === 'server' && activeServer && activeChannel && isSquadRoom && (
-                  <SquadLobbyBanner
-                    server={activeServer}
-                    channelId={activeChannel.id}
-                    me={me}
-                    users={users}
-                    squadState={squadState[`${activeServer.id}:${activeChannel.id}`]}
-                    onUpdateSquad={async (patch) => {
-                      const res = await api.updateSquadState(activeServer.id, activeChannel.id, patch);
-                      setSquadState((prev) => ({
-                        ...prev,
-                        [`${activeServer.id}:${activeChannel.id}`]: res.state,
-                      }));
-                    }}
-                    onJoinSquadVoice={() => {
-                      const vc = activeServer.channels.find((c) => c.type === 'voice');
-                      if (vc) selectChannel(activeServer, vc);
-                    }}
-                  />
-                )}
-
                 <div className="nc-messages-scroll">
                   <div className="nc-welcome-header">
                     <div className="nc-welcome-ico">
