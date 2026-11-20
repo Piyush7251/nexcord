@@ -23,9 +23,9 @@ async function getWabaConfig(apiKey) {
       const phoneId = String(waba.phone_number_id || '');
       const templates = Array.isArray(waba.templates) ? waba.templates : [];
 
-      // Look for any approved template (preferring ones with 'otp', 'verify', 'auth', or 'login' in name)
+      // Look for any approved template (preferring ones with 'otp', 'verify', 'auth', 'login', 'access', or 'welcome' in name)
       const approved = templates.filter((t) => String(t.status || '').toLowerCase() === 'approved');
-      const otpTpl = approved.find((t) => /otp|verify|auth|code|login/i.test(t.template_name)) || approved[0];
+      const otpTpl = approved.find((t) => /otp|verify|auth|code|login|access|welcome/i.test(t.template_name)) || approved[0];
 
       if (otpTpl) {
         cachedWabaConfig = {
