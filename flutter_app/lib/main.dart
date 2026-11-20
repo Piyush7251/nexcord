@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'services/call_engine_stub.dart' as call_nc;
 import 'package:ai_nexconn_chatui_plugin/ai_nexconn_chatui_plugin.dart';
 import 'models/models.dart';
@@ -78,7 +80,7 @@ class _NexcordHomeState extends State<NexcordHome> {
   NexconnConfig _config = NexconnConfig();
 
   // Navigation state
-  String _section = 'chat'; // chat | friends | chatui | sdk
+  String _section = 'chat'; // chat | friends | voice | settings
   bool _homeMode = false;
   String _activeServerId = '';
   String _activeChannelId = '';
@@ -435,43 +437,49 @@ class _NexcordHomeState extends State<NexcordHome> {
             if (_section == 'chat' && !_homeMode && ch != null) ...[
               Icon(
                 ch.type == 'voice'
-                    ? Icons.volume_up
+                    ? Icons.volume_up_rounded
                     : ch.type == 'live'
-                        ? Icons.tv
-                        : Icons.tag,
-                size: 19,
+                        ? Icons.tv_rounded
+                        : Icons.tag_rounded,
+                size: 20,
                 color: ch.type == 'live' ? const Color(0xFFF23F43) : const Color(0xFF949BA4),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Expanded(
-                child: Text(ch.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                child: Text(ch.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold, letterSpacing: -0.2)),
               ),
             ] else if (_section == 'chat' && _homeMode && _activeDmUserId.isNotEmpty) ...[
-              const Icon(Icons.alternate_email, size: 18, color: Color(0xFF949BA4)),
-              const SizedBox(width: 6),
+              const Icon(Icons.alternate_email_rounded, size: 19, color: Color(0xFF949BA4)),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   _users[_activeDmUserId]?.displayName ?? _activeDmUserId,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold),
                 ),
               ),
             ] else if (_section == 'friends') ...[
-              const Icon(Icons.group, size: 19, color: Color(0xFF949BA4)),
+              const Icon(Icons.people_alt_rounded, size: 20, color: Color(0xFF5865F2)),
               const SizedBox(width: 8),
-              const Text('Friends', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ] else if (_section == 'chatui') ...[
-              const Icon(Icons.forum, size: 19, color: Color(0xFF5865F2)),
+              const Text('Friends & DMs', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold)),
+            ] else if (_section == 'voice') ...[
+              const Icon(Icons.headset_mic_rounded, size: 20, color: Color(0xFF23A55A)),
               const SizedBox(width: 8),
-              const Text('Nexconn Chat UI Kit', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('Voice Channels', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold)),
             ] else ...[
-              const Icon(Icons.hub, size: 19, color: Color(0xFF57F287)),
+              const Icon(Icons.account_circle_rounded, size: 20, color: Color(0xFF5865F2)),
               const SizedBox(width: 8),
-              const Text('Nexconn SDK Console', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('Profile & Settings', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold)),
             ],
           ],
         ),
         actions: [
+          if (_section == 'chat' && !_homeMode && srv != null)
+            IconButton(
+              icon: const Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF5865F2), size: 21),
+              tooltip: 'Invite & Share Server',
+              onPressed: () => _showShareServerSheet(context, srv),
+            ),
           if (_section == 'chat' && !_homeMode && ch != null && ch.type == 'text')
             IconButton(
               icon: Icon(
@@ -483,7 +491,7 @@ class _NexcordHomeState extends State<NexcordHome> {
             ),
           if (_section == 'chat' && _homeMode && _activeDmUserId.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.call),
+              icon: const Icon(Icons.call_rounded, color: Color(0xFF23A55A)),
               tooltip: 'Voice Call',
               onPressed: () {
                 _sdk.logVoiceAction('NCCall.startCall', '1-to-1 voice call -> $_activeDmUserId');
@@ -492,66 +500,47 @@ class _NexcordHomeState extends State<NexcordHome> {
                 );
               },
             ),
-          Builder(
-            builder: (ctx) => IconButton(
-              icon: const Icon(Icons.people),
-              tooltip: 'Members',
-              onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+          if (_section == 'chat' && !_homeMode && srv != null)
+            Builder(
+              builder: (ctx) => IconButton(
+                icon: const Icon(Icons.people_alt_rounded),
+                tooltip: 'Server Members',
+                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+              ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded, size: 20, color: Color(0xFFF23F43)),
-            tooltip: 'Log Out',
-            onPressed: () async {
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: const Color(0xFF313338),
-                  title: const Text('Log Out', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  content: const Text('Are you sure you want to log out of Nexcord?', style: TextStyle(color: Color(0xFFB5BAC1))),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('Cancel', style: TextStyle(color: Color(0xFF949BA4))),
-                    ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDA373C), foregroundColor: Colors.white),
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('Log Out'),
-                    ),
-                  ],
-                ),
-              );
-              if (confirm == true) await _logout();
-            },
-          ),
         ],
       ),
       drawer: _buildLeftDrawer(context, srv),
       endDrawer: _buildMembersDrawer(context, srv),
       body: _buildBody(srv, ch),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: const Color(0xFF1E1F22),
-        selectedItemColor: const Color(0xFF5865F2),
-        unselectedItemColor: const Color(0xFF949BA4),
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _section == 'chat'
-            ? 0
-            : _section == 'friends'
-                ? 1
-                : _section == 'chatui'
-                    ? 2
-                    : 3,
-        onTap: (idx) {
-          setState(() {
-            _section = ['chat', 'friends', 'chatui', 'sdk'][idx];
-          });
-        },
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.forum_rounded), label: 'Servers'),
-          BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Friends'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat_rounded), label: 'Chat UI'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings_suggest_rounded), label: 'Settings'),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildActiveVoiceBar(srv),
+          BottomNavigationBar(
+            backgroundColor: const Color(0xFF1E1F22),
+            selectedItemColor: const Color(0xFF5865F2),
+            unselectedItemColor: const Color(0xFF949BA4),
+            type: BottomNavigationBarType.fixed,
+            currentIndex: _section == 'chat'
+                ? 0
+                : _section == 'friends'
+                    ? 1
+                    : _section == 'voice'
+                        ? 2
+                        : 3,
+            onTap: (idx) {
+              setState(() {
+                _section = ['chat', 'friends', 'voice', 'settings'][idx];
+              });
+            },
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.forum_rounded), label: 'Servers'),
+              BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Friends'),
+              BottomNavigationBarItem(icon: Icon(Icons.headset_mic_rounded), label: 'Voice'),
+              BottomNavigationBarItem(icon: Icon(Icons.account_circle_rounded), label: 'You'),
+            ],
+          ),
         ],
       ),
     );
@@ -580,7 +569,16 @@ class _NexcordHomeState extends State<NexcordHome> {
                         _section = _activeDmUserId.isEmpty ? 'friends' : 'chat';
                       });
                     },
-                    child: const Icon(Icons.sports_esports, color: Colors.white),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset(
+                        'assets/nexconn_logo.png',
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.hub_rounded, color: Colors.white),
+                      ),
+                    ),
                   ),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8, horizontal: 18),
@@ -614,7 +612,14 @@ class _NexcordHomeState extends State<NexcordHome> {
                     active: false,
                     color: const Color(0xFF23A55A),
                     onTap: () => _showCreateServerDialog(context),
-                    child: const Icon(Icons.add, color: Color(0xFF23A55A)),
+                    child: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
+                  ),
+                  const SizedBox(height: 8),
+                  _railButton(
+                    active: false,
+                    color: const Color(0xFF5865F2),
+                    onTap: () => _showJoinServerDialog(context),
+                    child: const Icon(Icons.explore_rounded, color: Colors.white, size: 22),
                   ),
                 ],
               ),
@@ -625,29 +630,78 @@ class _NexcordHomeState extends State<NexcordHome> {
               child: Column(
                 children: [
                   Container(
-                    height: 48,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    height: 52,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: const BoxDecoration(
                       border: Border(bottom: BorderSide(color: Colors.black26)),
                     ),
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            _homeMode ? 'Direct Messages' : (srv?.name ?? 'Nexcord'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          child: InkWell(
+                            onTap: () {
+                              if (!_homeMode && srv != null) {
+                                _showShareServerSheet(context, srv);
+                              }
+                            },
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _homeMode ? 'Direct Messages' : (srv?.name ?? 'Nexcord'),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                                if (!_homeMode && srv != null)
+                                  const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Color(0xFF949BA4)),
+                              ],
+                            ),
                           ),
                         ),
-                        if (!_homeMode && srv != null)
+                        if (!_homeMode && srv != null) ...[
                           IconButton(
-                            icon: const Icon(Icons.add, size: 18),
+                            icon: const Icon(Icons.share_rounded, size: 18, color: Color(0xFF5865F2)),
+                            tooltip: 'Share Server Link & ID',
+                            onPressed: () => _showShareServerSheet(context, srv),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_rounded, size: 20, color: Color(0xFF949BA4)),
+                            tooltip: 'Create Channel',
                             onPressed: () => _showCreateChannelDialog(context, srv),
                           ),
+                        ],
                       ],
                     ),
                   ),
+                  if (!_homeMode && srv != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+                      child: InkWell(
+                        onTap: () => _showShareServerSheet(context, srv),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0x285865F2),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0x555865F2)),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.person_add_alt_1_rounded, size: 15, color: Color(0xFF5865F2)),
+                              SizedBox(width: 8),
+                              Text(
+                                'Share Server Link & ID',
+                                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF5865F2)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   Expanded(
                     child: _homeMode
                         ? ListView(
@@ -796,9 +850,12 @@ class _NexcordHomeState extends State<NexcordHome> {
                           onPressed: () => setState(() => _micMuted = !_micMuted),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.logout, size: 18),
-                          tooltip: 'Log out',
-                          onPressed: _logout,
+                          icon: const Icon(Icons.settings_rounded, size: 18, color: Color(0xFF949BA4)),
+                          tooltip: 'Profile & Settings',
+                          onPressed: () {
+                            Navigator.pop(context);
+                            setState(() => _section = 'settings');
+                          },
                         ),
                       ],
                     ),
@@ -922,7 +979,9 @@ class _NexcordHomeState extends State<NexcordHome> {
       return _FriendsHub(
         friends: _friends,
         incoming: _incoming,
+        dms: _dms,
         users: _users,
+        me: _me!,
         onAccept: (uid) async {
           await _api.acceptFriend(uid);
           await _syncNow();
@@ -949,25 +1008,12 @@ class _NexcordHomeState extends State<NexcordHome> {
       );
     }
 
-    if (_section == 'chatui') {
-      return NexconnChatUIScreen(sdk: _sdk);
+    if (_section == 'voice') {
+      return _buildVoiceSection(srv);
     }
 
-    if (_section == 'sdk') {
-      return _SdkConsoleView(
-        config: _config,
-        sdk: _sdk,
-        onSaveCredentials: (appKey, secret, host, area) async {
-          final res = await _api.saveCredentials(appKey: appKey, appSecret: secret, apiHost: host, areaCode: area);
-          final nextCfg = NexconnConfig.fromJson(res['config'] as Map<String, dynamic>);
-          setState(() => _config = nextCfg);
-          final tok = res['nexconnToken']?.toString();
-          if (tok != null && tok.isNotEmpty) {
-            await _sdk.initializeAndConnect(token: tok, config: nextCfg);
-          }
-          return res['error']?.toString();
-        },
-      );
+    if (_section == 'settings') {
+      return _buildUserProfileSettingsScreen();
     }
 
     // Live Stream Stage Channel
@@ -1223,11 +1269,30 @@ class _NexcordHomeState extends State<NexcordHome> {
               ),
             ),
             ListTile(
-              leading: const Icon(Icons.reply),
+              leading: const Icon(Icons.reply_rounded),
               title: const Text('Reply'),
               onTap: () {
                 Navigator.pop(ctx);
                 setState(() => _replyTo = ReplyRef(id: m.id, senderId: m.senderId, text: m.text));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy Text'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: m.text));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Message copied to clipboard! 📋')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share_rounded),
+              title: const Text('Share Message'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Share.share(m.text);
               },
             ),
             if (!_homeMode && _activeServer != null && _activeChannel != null)
@@ -1252,6 +1317,992 @@ class _NexcordHomeState extends State<NexcordHome> {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showShareServerSheet(BuildContext context, NexcordServer srv) {
+    final inviteLink = 'https://nexcord-a85i.onrender.com/#/server/${srv.id}';
+    final inviteCode = srv.inviteCode.isNotEmpty ? srv.inviteCode : srv.id;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF2B2D31),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final sentMap = <String, bool>{};
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 14,
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: hexToColor(srv.iconColor),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            srv.name.split(' ').map((w) => w.isEmpty ? '' : w[0]).take(2).join().toUpperCase(),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                srv.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${srv.members.length} members • ${srv.channels.length} channels',
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF949BA4)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Color(0xFF949BA4)),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.share_rounded, size: 20),
+                        label: const Text('Share Server (WhatsApp, Telegram...)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5865F2),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () {
+                          Share.share(
+                            '🚀 Join my server "${srv.name}" on Nexcord!\n\n'
+                            '🔗 Server Link: $inviteLink\n'
+                            '🆔 Server ID: ${srv.id}\n'
+                            '🔑 Invite Code: $inviteCode',
+                            subject: 'Join ${srv.name} on Nexcord',
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('SERVER INVITE LINK', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5)),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1F22),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              inviteLink,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF00A8FC)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF5865F2),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            ),
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: inviteLink));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Server invite link copied! 📋')),
+                              );
+                            },
+                            child: const Text('Copy Link', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1F22),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('SERVER ID', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
+                                      const SizedBox(height: 2),
+                                      Text(srv.id, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF5865F2)),
+                                  tooltip: 'Copy Server ID',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: srv.id));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Server ID "${srv.id}" copied! 📋')),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1F22),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('INVITE CODE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
+                                      const SizedBox(height: 2),
+                                      Text(inviteCode, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF57F287))),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF57F287)),
+                                  tooltip: 'Copy Invite Code',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: inviteCode));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Invite Code "$inviteCode" copied! 📋')),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_friends.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      const Text('INVITE FRIENDS DIRECTLY', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5)),
+                      const SizedBox(height: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 160),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: _friends.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                          itemBuilder: (c, idx) {
+                            final fid = _friends[idx];
+                            final fu = _users[fid];
+                            final alreadySent = sentMap[fid] == true;
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: CircleAvatar(
+                                radius: 15,
+                                backgroundColor: fu?.color ?? const Color(0xFF5865F2),
+                                child: Text((fu?.displayName ?? fid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                              ),
+                              title: Text(fu?.displayName ?? fid, style: const TextStyle(fontSize: 13.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                              subtitle: Text(fu?.status ?? 'offline', style: TextStyle(fontSize: 11, color: fu?.status == 'online' ? const Color(0xFF57F287) : const Color(0xFF949BA4))),
+                              trailing: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: alreadySent ? const Color(0xFF23A55A) : const Color(0xFF5865F2),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                ),
+                                onPressed: alreadySent
+                                    ? null
+                                    : () async {
+                                        setModalState(() => sentMap[fid] = true);
+                                        try {
+                                          await _api.postMessage(
+                                            fid,
+                                            text: 'Hey! Join my server "${srv.name}" on Nexcord: $inviteLink (Server ID: ${srv.id})',
+                                          );
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Invite sent to ${fu?.displayName ?? fid}! ✉️')),
+                                          );
+                                        } catch (e) {
+                                          setModalState(() => sentMap[fid] = false);
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Failed to send: $e')),
+                                          );
+                                        }
+                                      },
+                                child: Text(alreadySent ? 'Sent ✓' : 'Invite', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showJoinServerDialog(BuildContext context) {
+    final codeCtrl = TextEditingController();
+    bool joining = false;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF2B2D31),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.explore_rounded, color: Color(0xFF5865F2), size: 24),
+              SizedBox(width: 10),
+              Text('Join a Server', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter an invite link, Server ID, or invite code to join a friend\'s server.',
+                style: TextStyle(color: Color(0xFFB5BAC1), fontSize: 13),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: codeCtrl,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'INVITE LINK OR SERVER ID',
+                  labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4)),
+                  hintText: 'e.g. s_general or NEXCORD',
+                  hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                  filled: true,
+                  fillColor: const Color(0xFF1E1F22),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF5865F2), width: 1.5)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Color(0xFF949BA4))),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5865F2),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: joining
+                  ? null
+                  : () async {
+                      final raw = codeCtrl.text.trim();
+                      if (raw.isEmpty) return;
+                      setDialogState(() => joining = true);
+                      try {
+                        final joined = await _api.joinInvite(raw);
+                        await _syncNow();
+                        if (context.mounted) Navigator.pop(ctx);
+                        setState(() {
+                          _homeMode = false;
+                          _activeServerId = joined.id;
+                          _section = 'chat';
+                          final firstCh = joined.channels.firstOrNull;
+                          if (firstCh != null) _selectChannel(joined, firstCh);
+                        });
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Joined "${joined.name}"! 🎉')),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => joining = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Could not join: $e'), backgroundColor: const Color(0xFFDA373C)),
+                          );
+                        }
+                      }
+                    },
+              child: joining
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Join Server', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActiveVoiceBar(NexcordServer? srv) {
+    if (_voiceChannelId == null) return const SizedBox.shrink();
+    final vChannel = _servers
+        .expand((s) => s.channels)
+        .where((c) => c.id == _voiceChannelId)
+        .firstOrNull;
+    final vServer = _servers
+        .where((s) => s.id == _voiceServerId)
+        .firstOrNull;
+
+    return Container(
+      height: 48,
+      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF23A55A), Color(0xFF1E824C)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(color: Color(0x5523A55A), blurRadius: 8, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.volume_up_rounded, color: Colors.white, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                setState(() => _section = 'voice');
+              },
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Connected: ${vChannel?.name ?? "Voice Room"}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  Text(
+                    vServer?.name ?? 'Voice Channel',
+                    style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            icon: Icon(_micMuted ? Icons.mic_off_rounded : Icons.mic_rounded, color: Colors.white, size: 19),
+            tooltip: _micMuted ? 'Unmute' : 'Mute',
+            onPressed: _toggleVoiceMic,
+          ),
+          IconButton(
+            icon: const Icon(Icons.call_end_rounded, color: Color(0xFFF23F43), size: 19),
+            tooltip: 'Disconnect',
+            style: IconButton.styleFrom(backgroundColor: Colors.white24),
+            onPressed: () async {
+              await _leaveVoiceChannel();
+              await _syncNow(silent: true);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVoiceSection(NexcordServer? currentSrv) {
+    if (_voiceChannelId != null) {
+      final vServer = _servers.where((s) => s.id == _voiceServerId).firstOrNull ?? currentSrv;
+      final vChannel = vServer?.channels.where((c) => c.id == _voiceChannelId).firstOrNull;
+      if (vServer != null && vChannel != null) {
+        return VoiceHuddleView(
+          channelName: vChannel.name,
+          callId: _voiceCallId,
+          me: _me!,
+          users: _users,
+          participants: vServer.voiceStates[vChannel.id] ?? [],
+          micMuted: _micMuted,
+          deafened: _deafened,
+          cameraOn: _cameraOn,
+          onToggleMic: _toggleVoiceMic,
+          onToggleDeafen: _toggleVoiceDeafen,
+          onToggleCamera: _toggleVoiceCamera,
+          onHangup: () async {
+            await _leaveVoiceChannel();
+            await _syncNow(silent: true);
+          },
+        );
+      }
+    }
+
+    final allVoiceChannels = <({NexcordServer server, NexcordChannel channel, List<VoiceParticipant> members})>[];
+    for (final s in _servers) {
+      for (final c in s.channels) {
+        if (c.type == 'voice') {
+          allVoiceChannels.add((
+            server: s,
+            channel: c,
+            members: s.voiceStates[c.id] ?? [],
+          ));
+        }
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF5865F2), Color(0xFF23A55A)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: const [
+              BoxShadow(color: Color(0x445865F2), blurRadius: 12, offset: Offset(0, 4)),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.headset_mic_rounded, color: Colors.white, size: 28),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Voice Channels & Audio Lounges', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                    SizedBox(height: 3),
+                    Text('Join low-latency voice channels with friends across servers.', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        const Text('ACTIVE VOICE CHANNELS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5)),
+        const SizedBox(height: 10),
+        if (allVoiceChannels.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2B2D31),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(
+              child: Text('No voice channels found. Create one from the server menu!', style: TextStyle(color: Color(0xFF949BA4))),
+            ),
+          )
+        else
+          ...allVoiceChannels.map((item) {
+            final isConnectedHere = _voiceChannelId == item.channel.id;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2B2D31),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isConnectedHere ? const Color(0xFF23A55A) : Colors.white10,
+                  width: isConnectedHere ? 1.5 : 1,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 12,
+                          backgroundColor: hexToColor(item.server.iconColor),
+                          child: Text(
+                            item.server.name.isNotEmpty ? item.server.name[0].toUpperCase() : 'S',
+                            style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(item.server.name, style: const TextStyle(fontSize: 12, color: Color(0xFF949BA4), fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        if (isConnectedHere)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0x3323A55A),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('CONNECTED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF23A55A))),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.volume_up_rounded, color: Colors.white, size: 22),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            item.channel.name,
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          icon: Icon(
+                            isConnectedHere ? Icons.meeting_room_rounded : Icons.login_rounded,
+                            size: 16,
+                          ),
+                          label: Text(isConnectedHere ? 'Open Stage' : 'Join Voice'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isConnectedHere ? const Color(0xFF23A55A) : const Color(0xFF5865F2),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            if (!isConnectedHere) {
+                              _selectChannel(item.server, item.channel);
+                            }
+                            setState(() => _section = 'voice');
+                          },
+                        ),
+                      ],
+                    ),
+                    if (item.members.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: item.members.map((m) {
+                          final mu = _users[m.userId];
+                          return Chip(
+                            avatar: CircleAvatar(
+                              backgroundColor: mu?.color ?? const Color(0xFF5865F2),
+                              child: Text(
+                                (mu?.displayName ?? m.userId)[0].toUpperCase(),
+                                style: const TextStyle(fontSize: 10, color: Colors.white),
+                              ),
+                            ),
+                            label: Text(mu?.displayName ?? m.userId, style: const TextStyle(fontSize: 11)),
+                            backgroundColor: const Color(0xFF1E1F22),
+                            visualDensity: VisualDensity.compact,
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildUserProfileSettingsScreen() {
+    final me = _me;
+    if (me == null) return const Center(child: CircularProgressIndicator());
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF2B2D31),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: const [
+              BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 80,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      hexToColor(me.bannerColor, fallback: const Color(0xFF5865F2)),
+                      const Color(0xFF2B2D31),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Transform.translate(
+                      offset: const Offset(0, -32),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Stack(
+                            children: [
+                              CircleAvatar(
+                                radius: 36,
+                                backgroundColor: const Color(0xFF2B2D31),
+                                child: CircleAvatar(
+                                  radius: 32,
+                                  backgroundColor: me.color,
+                                  child: Text(
+                                    me.displayName.isNotEmpty ? me.displayName[0].toUpperCase() : 'U',
+                                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                right: 4,
+                                bottom: 4,
+                                child: Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: BoxDecoration(
+                                    color: me.status == 'online'
+                                        ? const Color(0xFF23A55A)
+                                        : me.status == 'idle'
+                                            ? const Color(0xFFFEE75C)
+                                            : me.status == 'dnd'
+                                                ? const Color(0xFFF23F43)
+                                                : const Color(0xFF80848E),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: const Color(0xFF2B2D31), width: 3),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Spacer(),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.edit_rounded, size: 16),
+                            label: const Text('Edit Status'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white24),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: _showEditProfileDialog,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Transform.translate(
+                      offset: const Offset(0, -20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            me.displayName,
+                            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                          Text(
+                            '@${me.username}',
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF949BA4)),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1F22),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                const Text('🎮 ', style: TextStyle(fontSize: 14)),
+                                Expanded(
+                                  child: Text(
+                                    me.customStatus.isNotEmpty ? me.customStatus : 'Playing Nexcord Mobile',
+                                    style: const TextStyle(fontSize: 12.5, color: Color(0xFFDBDEE1)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text('ONLINE STATUS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5)),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(color: const Color(0xFF2B2D31), borderRadius: BorderRadius.circular(14)),
+          child: Column(
+            children: [
+              _buildStatusOption('online', 'Online', const Color(0xFF23A55A), me.status == 'online'),
+              const Divider(height: 1, indent: 44, color: Colors.white10),
+              _buildStatusOption('idle', 'Idle', const Color(0xFFFEE75C), me.status == 'idle'),
+              const Divider(height: 1, indent: 44, color: Colors.white10),
+              _buildStatusOption('dnd', 'Do Not Disturb', const Color(0xFFF23F43), me.status == 'dnd'),
+              const Divider(height: 1, indent: 44, color: Colors.white10),
+              _buildStatusOption('offline', 'Invisible', const Color(0xFF80848E), me.status == 'offline'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        const Text('SERVERS & COMMUNITY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5)),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(color: const Color(0xFF2B2D31), borderRadius: BorderRadius.circular(14)),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.share_rounded, color: Color(0xFF5865F2)),
+                title: const Text('Share Active Server Link & ID'),
+                subtitle: Text(_activeServer?.name ?? 'Select a server to share'),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF949BA4)),
+                onTap: () {
+                  final s = _activeServer;
+                  if (s != null) {
+                    _showShareServerSheet(context, s);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a server first!')));
+                  }
+                },
+              ),
+              const Divider(height: 1, indent: 56, color: Colors.white10),
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF23A55A)),
+                title: const Text('Create New Server'),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF949BA4)),
+                onTap: () => _showCreateServerDialog(context),
+              ),
+              const Divider(height: 1, indent: 56, color: Colors.white10),
+              ListTile(
+                leading: const Icon(Icons.explore_rounded, color: Color(0xFF00A8FC)),
+                title: const Text('Join Server with ID or Link'),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF949BA4)),
+                onTap: () => _showJoinServerDialog(context),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        const Text('APP & ADVANCED', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5)),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(color: const Color(0xFF2B2D31), borderRadius: BorderRadius.circular(14)),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.cloud_done_rounded, color: Color(0xFF57F287)),
+                title: const Text('Server Backend'),
+                subtitle: const Text('https://nexcord-a85i.onrender.com'),
+                trailing: const Icon(Icons.check_circle, color: Color(0xFF23A55A), size: 18),
+              ),
+              const Divider(height: 1, indent: 56, color: Colors.white10),
+              ExpansionTile(
+                leading: const Icon(Icons.developer_mode_rounded, color: Color(0xFFE67E22)),
+                title: const Text('Nexconn SDK Developer Tools'),
+                subtitle: const Text('SDK Console & Diagnostics'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.terminal_rounded),
+                          label: const Text('Open SDK Console'),
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E1F22), foregroundColor: Colors.white),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => Scaffold(
+                                  appBar: AppBar(title: const Text('Nexconn SDK Console')),
+                                  body: _SdkConsoleView(
+                                    config: _config,
+                                    sdk: _sdk,
+                                    onSaveCredentials: (k, s, h, a) async {
+                                      final res = await _api.saveCredentials(appKey: k, appSecret: s, apiHost: h, areaCode: a);
+                                      final nextCfg = NexconnConfig.fromJson(res['config'] as Map<String, dynamic>);
+                                      setState(() => _config = nextCfg);
+                                      return res['error']?.toString();
+                                    },
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.logout_rounded, size: 20),
+            label: const Text('Log Out of Nexcord', style: TextStyle(fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDA373C),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF313338),
+                  title: const Text('Log Out', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  content: const Text('Are you sure you want to log out of Nexcord?', style: TextStyle(color: Color(0xFFB5BAC1))),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel', style: TextStyle(color: Color(0xFF949BA4)))),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDA373C), foregroundColor: Colors.white),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Log Out'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true) await _logout();
+            },
+          ),
+        ),
+        const SizedBox(height: 30),
+      ],
+    );
+  }
+
+  Widget _buildStatusOption(String key, String label, Color color, bool selected) {
+    return ListTile(
+      leading: Container(
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      title: Text(label, style: TextStyle(fontWeight: selected ? FontWeight.bold : FontWeight.normal, color: Colors.white)),
+      trailing: selected ? const Icon(Icons.check_rounded, color: Color(0xFF5865F2), size: 20) : null,
+      onTap: () async {
+        try {
+          await _api.updateMe({'status': key});
+          await _syncNow();
+        } catch (e) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+        }
+      },
+    );
+  }
+
+  void _showEditProfileDialog() {
+    final me = _me;
+    if (me == null) return;
+    final statusCtrl = TextEditingController(text: me.customStatus);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2B2D31),
+        title: const Text('Set Custom Status', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: statusCtrl,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'What\'s on your mind? (e.g. In a match 🎯)',
+            hintStyle: TextStyle(color: Colors.white38),
+            filled: true,
+            fillColor: Color(0xFF1E1F22),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5865F2), foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _api.updateMe({'customStatus': statusCtrl.text.trim()});
+              await _syncNow();
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }
@@ -1526,21 +2577,25 @@ class _AuthScreenState extends State<_AuthScreen> {
                         width: 48,
                         height: 48,
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF5865F2), Color(0xFF4752C4)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: const [
                             BoxShadow(
-                              color: Color(0x665865F2),
+                              color: Color(0x66863BFF),
                               blurRadius: 10,
                               offset: Offset(0, 4),
                             ),
                           ],
                         ),
-                        child: const Icon(Icons.sports_esports_rounded, color: Colors.white, size: 28),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.asset(
+                            'assets/nexconn_logo.png',
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.hub_rounded, color: Colors.white, size: 28),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 14),
                       const Expanded(
@@ -2105,7 +3160,9 @@ class _AuthScreenState extends State<_AuthScreen> {
 class _FriendsHub extends StatefulWidget {
   final List<String> friends;
   final List<String> incoming;
+  final List<String> dms;
   final Map<String, NexcordUser> users;
+  final NexcordUser me;
   final Future<void> Function(String userId) onAccept;
   final Future<void> Function(String userId) onDecline;
   final Future<void> Function(String username) onAddFriend;
@@ -2114,7 +3171,9 @@ class _FriendsHub extends StatefulWidget {
   const _FriendsHub({
     required this.friends,
     required this.incoming,
+    required this.dms,
     required this.users,
+    required this.me,
     required this.onAccept,
     required this.onDecline,
     required this.onAddFriend,
@@ -2125,83 +3184,289 @@ class _FriendsHub extends StatefulWidget {
   State<_FriendsHub> createState() => _FriendsHubState();
 }
 
-class _FriendsHubState extends State<_FriendsHub> {
+class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderStateMixin {
+  late final TabController _tabCtrl = TabController(length: 4, vsync: this);
   final _addCtrl = TextEditingController();
   String _feedback = '';
+  bool _showAddBar = false;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(14),
+    final onlineFriends = widget.friends.where((id) => widget.users[id]?.status == 'online').toList();
+
+    return Column(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _addCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'Add friend (e.g. vex.clutch)',
-                  filled: true,
-                  fillColor: Color(0xFF1E1F22),
-                  isDense: true,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF23A55A), foregroundColor: Colors.white),
-              onPressed: () async {
-                try {
-                  await widget.onAddFriend(_addCtrl.text.trim());
-                  setState(() => _feedback = 'Friend request sent!');
-                  _addCtrl.clear();
-                } catch (e) {
-                  setState(() => _feedback = e.toString());
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
-        if (_feedback.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(_feedback, style: const TextStyle(fontSize: 12, color: Color(0xFF57F287))),
-          ),
-        if (widget.incoming.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Text('INCOMING REQUESTS (${widget.incoming.length})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
-          ...widget.incoming.map((uid) {
-            final u = widget.users[uid];
-            return ListTile(
-              title: Text(u?.displayName ?? uid),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(icon: const Icon(Icons.check, color: Color(0xFF57F287)), onPressed: () => widget.onAccept(uid)),
-                  IconButton(icon: const Icon(Icons.close, color: Color(0xFFF23F43)), onPressed: () => widget.onDecline(uid)),
+        Container(
+          color: const Color(0xFF1E1F22),
+          child: Column(
+            children: [
+              TabBar(
+                controller: _tabCtrl,
+                isScrollable: true,
+                indicatorColor: const Color(0xFF5865F2),
+                labelColor: Colors.white,
+                unselectedLabelColor: const Color(0xFF949BA4),
+                labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                tabs: [
+                  Tab(text: 'DMs (${widget.dms.length})'),
+                  Tab(text: 'Online (${onlineFriends.length})'),
+                  Tab(text: 'All Friends (${widget.friends.length})'),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Pending'),
+                        if (widget.incoming.isNotEmpty) ...[
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: const Color(0xFFF23F43), borderRadius: BorderRadius.circular(10)),
+                            child: Text('${widget.incoming.length}', style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            );
-          }),
-        ],
-        const SizedBox(height: 16),
-        Text('FRIENDS (${widget.friends.length})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
-        ...widget.friends.map((uid) {
-          final u = widget.users[uid];
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: u?.color ?? const Color(0xFF5865F2),
-              child: Text((u?.displayName ?? 'U')[0].toUpperCase(), style: const TextStyle(color: Colors.white)),
-            ),
-            title: Text(u?.displayName ?? uid),
-            subtitle: Text(u?.customStatus.isNotEmpty == true ? u!.customStatus : (u?.status ?? 'offline')),
-            trailing: IconButton(
-              icon: const Icon(Icons.chat_bubble_outline),
-              onPressed: () => widget.onOpenDm(uid),
-            ),
-          );
-        }),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _showAddBar = !_showAddBar),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2B2D31),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.person_add_alt_1_rounded, size: 16, color: Color(0xFF23A55A)),
+                              const SizedBox(width: 8),
+                              Text(
+                                _showAddBar ? 'Close Add Friend' : 'Add Friend with Username',
+                                style: const TextStyle(fontSize: 12.5, color: Color(0xFFDBDEE1), fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_showAddBar)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _addCtrl,
+                          autofocus: true,
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
+                            hintText: 'Enter username (e.g. vex.clutch)',
+                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                            filled: true,
+                            fillColor: const Color(0xFF2B2D31),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF23A55A),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () async {
+                          final un = _addCtrl.text.trim();
+                          if (un.isEmpty) return;
+                          try {
+                            await widget.onAddFriend(un);
+                            setState(() {
+                              _feedback = 'Friend request sent to $un! 🎉';
+                              _showAddBar = false;
+                            });
+                            _addCtrl.clear();
+                          } catch (e) {
+                            setState(() => _feedback = 'Error: $e');
+                          }
+                        },
+                        child: const Text('Send', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_feedback.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                  child: Text(_feedback, style: const TextStyle(fontSize: 11, color: Color(0xFF57F287))),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabCtrl,
+            children: [
+              widget.dms.isEmpty
+                  ? const Center(
+                      child: Text('No direct messages yet. Start chatting with friends!', style: TextStyle(color: Color(0xFF949BA4))),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: widget.dms.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                      itemBuilder: (ctx, i) {
+                        final uid = widget.dms[i];
+                        final u = widget.users[uid];
+                        final isOnline = u?.status == 'online';
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          leading: Stack(
+                            children: [
+                              CircleAvatar(
+                                radius: 20,
+                                backgroundColor: u?.color ?? const Color(0xFF5865F2),
+                                child: Text((u?.displayName ?? uid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                              if (isOnline)
+                                Positioned(
+                                  right: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF23A55A),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: const Color(0xFF313338), width: 2),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          title: Text(u?.displayName ?? uid, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                          subtitle: Text(
+                            u?.customStatus.isNotEmpty == true ? u!.customStatus : (isOnline ? 'Online' : 'Offline'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: isOnline ? const Color(0xFF57F287) : const Color(0xFF949BA4)),
+                          ),
+                          trailing: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF5865F2), size: 20),
+                          onTap: () => widget.onOpenDm(uid),
+                        );
+                      },
+                    ),
+              onlineFriends.isEmpty
+                  ? const Center(
+                      child: Text('No friends currently online.', style: TextStyle(color: Color(0xFF949BA4))),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: onlineFriends.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                      itemBuilder: (ctx, i) {
+                        final uid = onlineFriends[i];
+                        final u = widget.users[uid];
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          leading: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: u?.color ?? const Color(0xFF5865F2),
+                            child: Text((u?.displayName ?? uid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          ),
+                          title: Text(u?.displayName ?? uid, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                          subtitle: Text(u?.customStatus.isNotEmpty == true ? u!.customStatus : 'Online', style: const TextStyle(fontSize: 12, color: Color(0xFF57F287))),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF5865F2), size: 20),
+                            onPressed: () => widget.onOpenDm(uid),
+                          ),
+                        );
+                      },
+                    ),
+              widget.friends.isEmpty
+                  ? const Center(
+                      child: Text('You haven\'t added any friends yet.', style: TextStyle(color: Color(0xFF949BA4))),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: widget.friends.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                      itemBuilder: (ctx, i) {
+                        final uid = widget.friends[i];
+                        final u = widget.users[uid];
+                        final isOnline = u?.status == 'online';
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          leading: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: u?.color ?? const Color(0xFF5865F2),
+                            child: Text((u?.displayName ?? uid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          ),
+                          title: Text(u?.displayName ?? uid, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                          subtitle: Text(
+                            u?.customStatus.isNotEmpty == true ? u!.customStatus : (isOnline ? 'Online' : 'Offline'),
+                            style: TextStyle(fontSize: 12, color: isOnline ? const Color(0xFF57F287) : const Color(0xFF949BA4)),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF5865F2), size: 20),
+                            onPressed: () => widget.onOpenDm(uid),
+                          ),
+                        );
+                      },
+                    ),
+              widget.incoming.isEmpty
+                  ? const Center(
+                      child: Text('No pending friend requests.', style: TextStyle(color: Color(0xFF949BA4))),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: widget.incoming.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                      itemBuilder: (ctx, i) {
+                        final uid = widget.incoming[i];
+                        final u = widget.users[uid];
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          leading: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: u?.color ?? const Color(0xFF5865F2),
+                            child: Text((u?.displayName ?? uid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          ),
+                          title: Text(u?.displayName ?? uid, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                          subtitle: const Text('Incoming friend request', style: TextStyle(fontSize: 12, color: Color(0xFF949BA4))),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.check_circle_rounded, color: Color(0xFF23A55A), size: 28),
+                                tooltip: 'Accept',
+                                onPressed: () => widget.onAccept(uid),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.cancel_rounded, color: Color(0xFFF23F43), size: 28),
+                                tooltip: 'Decline',
+                                onPressed: () => widget.onDecline(uid),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ],
+          ),
+        ),
       ],
     );
   }
