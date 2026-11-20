@@ -739,18 +739,6 @@ export function App() {
     });
   };
 
-  const handleMapPing = async (x: number, y: number, label: string) => {
-    if (!activeTarget) return;
-    const msg = await nexconn.sendTextMessage(activeTarget, `📍 Tactical Ping at **${label}** (${x}, ${y}) — Eyes here!`, {
-      type: 'quickchat',
-      metadata: { category: 'tactical', badge: 'MAP PING', coords: { x, y, label } },
-    });
-    setMessagesByKey((prev) => {
-      const cur = prev[activeTargetKey] || [];
-      if (cur.some((m) => m.id === msg.id)) return prev;
-      return { ...prev, [activeTargetKey]: [...cur, msg] };
-    });
-  };
 
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1828,7 +1816,6 @@ export function App() {
                         [`${activeServer.id}:${activeChannel.id}`]: res.state,
                       }));
                     }}
-                    onMapPing={handleMapPing}
                     onJoinSquadVoice={() => {
                       const vc = activeServer.channels.find((c) => c.type === 'voice');
                       if (vc) selectChannel(activeServer, vc);
