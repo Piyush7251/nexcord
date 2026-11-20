@@ -76,6 +76,10 @@ class NexconnService {
   private currentCallId: string = '';
   private currentUserId: string = '';
   private seenSignals: Set<string> = new Set();
+  private iceServers: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
 
   setCurrentUser(userId: string) {
     this.currentUserId = userId;
@@ -92,6 +96,16 @@ class NexconnService {
   hasPeer(userId: string): boolean {
     const pc = this.peers.get(userId);
     return !!pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed';
+  }
+
+  setIceServers(iceServers: RTCIceServer[]) {
+    if (Array.isArray(iceServers) && iceServers.length > 0) {
+      this.iceServers = iceServers;
+    }
+  }
+
+  getPeerConnectionState(userId: string): RTCPeerConnectionState | 'new' {
+    return this.peers.get(userId)?.connectionState || 'new';
   }
 
   setCallbacks(cb: NexconnCallbacks) {
@@ -737,14 +751,7 @@ class NexconnService {
   }
 
   private getIceServers(): RTCIceServer[] {
-    return [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-      { urls: 'stun:global.stun.twilio.com:3478' },
-      { urls: 'stun:stun.nextcloud.com:443' },
-    ];
+    return this.iceServers;
   }
 
   private createPeerConnection(remoteUserId: string, callId: string): RTCPeerConnection {

@@ -96,6 +96,15 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   const inviteCandidates = Object.values(users).filter(
     (u) => u.id !== me.id && !participantIds.includes(u.id),
   );
+  const peerStates = callState.peerIds.map((id) => nexconn.getPeerConnectionState(id));
+  const connectedPeers = peerStates.filter((state) => state === 'connected').length;
+  const peerStatus = peerStates.length === 0
+    ? 'Waiting for peers'
+    : connectedPeers === peerStates.length
+      ? 'P2P Connected'
+      : peerStates.some((state) => state === 'failed')
+        ? 'Connection failed'
+        : `${connectedPeers}/${peerStates.length} connected`;
 
   return (
     <div className="nc-voice-stage">
@@ -106,8 +115,18 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
             {channel ? `Voice Connected — ${channel.name}` : `Call — ${callState.targetLabel || 'Direct Call'}`}
           </span>
           <span className="nc-sdk-chip desktop-only">@nexconn/call</span>
-          <span style={{ fontSize: 11, color: '#57F287', background: 'rgba(87,242,135,0.12)', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
-            🟢 P2P Active
+          <span
+            role="status"
+            style={{
+              fontSize: 11,
+              color: connectedPeers === peerStates.length && peerStates.length > 0 ? '#57F287' : '#F0B232',
+              background: connectedPeers === peerStates.length && peerStates.length > 0 ? 'rgba(87,242,135,0.12)' : 'rgba(240,178,50,0.12)',
+              padding: '2px 8px',
+              borderRadius: 10,
+              fontWeight: 600,
+            }}
+          >
+            {peerStatus}
           </span>
         </div>
         {onInviteUser && inviteCandidates.length > 0 && (

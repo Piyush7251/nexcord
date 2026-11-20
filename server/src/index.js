@@ -191,6 +191,24 @@ function newSession(user) {
 app.get('/api/health', (_req, res) => res.json({ ok: true, nexconnConfigured: nx.isConfigured() }));
 app.get('/api/config', (_req, res) => res.json(nx.getConfig()));
 
+// ICE server settings are needed by authenticated clients before they create
+// peer connections. TURN credentials remain server controlled and are only
+// returned to signed-in users.
+app.get('/api/webrtc/config', auth, (req, res) => {
+  const settings = db().settings || {};
+  const turnUrl = String(settings.customTurnUrl || process.env.WEBRTC_TURN_URL || '').trim();
+  const turnUsername = String(settings.customTurnUsername || process.env.WEBRTC_TURN_USERNAME || '').trim();
+  const turnCredential = String(settings.customTurnCredential || process.env.WEBRTC_TURN_CREDENTIAL || '').trim();
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
+  if (turnUrl && turnUsername && turnCredential) {
+    iceServers.push({ urls: turnUrl.split(',').map((url) => url.trim()).filter(Boolean), username: turnUsername, credential: turnCredential });
+  }
+  res.json({ iceServers, turnConfigured: iceServers.length > 2 });
+});
+
 app.post('/api/config/credentials', wrap(async (req, res) => {
   const { appKey, appSecret, apiHost, areaCode, fast2smsApiKey } = req.body || {};
   if (!appKey || !appSecret) throw new HttpError(400, 'Both App Key and App Secret are required');

@@ -309,6 +309,8 @@ export function App() {
       const cfg = await api.getConfig().catch(() => ({ appKey: '', areaCode: 2, apiHost: 'api.sg-light-api.com', configured: false }));
       setConfig(cfg);
       await nexconn.connect(nexconnToken, cfg.appKey, cfg.areaCode);
+      const rtcConfig = await api.getWebRtcConfig().catch(() => null);
+      if (rtcConfig?.iceServers?.length) nexconn.setIceServers(rtcConfig.iceServers);
       await runSync();
     },
     [runSync],
@@ -771,7 +773,11 @@ export function App() {
   // ---------------------------------------------------------------- Voice & Call actions
   const joinVoiceChannel = async (srv: Server, ch: Channel) => {
     nexconn.unlockAudio();
-    await nexconn.ensureLocalMedia(true, false);
+    const media = await nexconn.ensureLocalMedia(true, false);
+    if (!media?.getAudioTracks().some((track) => track.readyState === 'live')) {
+      window.alert('Microphone access is required to join voice. Check this site’s microphone permission and try again.');
+      return;
+    }
     const res = await api.joinVoice(srv.id, ch.id);
     const peers = res.participants.filter((id) => id !== me?.id);
     let callId = res.callId;
@@ -809,7 +815,11 @@ export function App() {
 
   const startDirectCall = async (userId: string, video: boolean) => {
     nexconn.unlockAudio();
-    await nexconn.ensureLocalMedia(true, video);
+    const media = await nexconn.ensureLocalMedia(true, video);
+    if (!media?.getAudioTracks().some((track) => track.readyState === 'live')) {
+      window.alert('Microphone access is required to start a call. Check this site’s microphone permission and try again.');
+      return;
+    }
     const u = users[userId];
     const callId = await nexconn.startCall({
       calleeIds: [userId],

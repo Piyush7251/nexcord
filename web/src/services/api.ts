@@ -77,6 +77,7 @@ export const api = {
       body: JSON.stringify({ to, signal, callId }),
     }),
   getWebRtcSignals: () => req<{ signals: Array<{ from: string; signal: any; callId: string }> }>('/api/webrtc/signals'),
+  getWebRtcConfig: () => req<{ iceServers: RTCIceServer[]; turnConfigured: boolean }>('/api/webrtc/config'),
   uploadFile: (file: { name: string; type: string; size: number; data: string }) =>
     req<{ url: string; name: string; type: string; size: number; isImage: boolean }>('/api/upload', {
       method: 'POST',
