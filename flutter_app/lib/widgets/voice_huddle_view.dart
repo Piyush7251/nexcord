@@ -10,9 +10,11 @@ class VoiceHuddleView extends StatelessWidget {
   final bool micMuted;
   final bool deafened;
   final bool cameraOn;
+  final bool screenSharing;
   final VoidCallback onToggleMic;
   final VoidCallback onToggleDeafen;
   final VoidCallback onToggleCamera;
+  final VoidCallback onToggleScreenShare;
   final VoidCallback onHangup;
 
   const VoiceHuddleView({
@@ -25,9 +27,11 @@ class VoiceHuddleView extends StatelessWidget {
     required this.micMuted,
     required this.deafened,
     required this.cameraOn,
+    this.screenSharing = false,
     required this.onToggleMic,
     required this.onToggleDeafen,
     required this.onToggleCamera,
+    required this.onToggleScreenShare,
     required this.onHangup,
   });
 
@@ -116,6 +120,10 @@ class VoiceHuddleView extends StatelessWidget {
                               const SizedBox(height: 6),
                               const Text('Camera Preview Active', style: TextStyle(fontSize: 10.5, color: Color(0xFF57F287))),
                             ],
+                            if (isMe && screenSharing) ...[
+                              const SizedBox(height: 6),
+                              const Text('Broadcasting Screen', style: TextStyle(fontSize: 10.5, color: Color(0xFF5865F2))),
+                            ],
                           ],
                         ),
                       ),
@@ -161,15 +169,17 @@ class VoiceHuddleView extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _dockBtn(micMuted ? Icons.mic_off : Icons.mic, !micMuted, onToggleMic),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
               _dockBtn(deafened ? Icons.headset_off : Icons.headphones, !deafened, onToggleDeafen),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
               _dockBtn(cameraOn ? Icons.videocam : Icons.videocam_off, cameraOn, onToggleCamera),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
+              _dockBtn(screenSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded, screenSharing, onToggleScreenShare),
+              const SizedBox(width: 10),
               IconButton(
                 style: IconButton.styleFrom(
                   backgroundColor: const Color(0xFFF23F43),
-                  fixedSize: const Size(52, 52),
+                  fixedSize: const Size(50, 50),
                 ),
                 onPressed: onHangup,
                 icon: const Icon(Icons.call_end, color: Colors.white),

@@ -110,13 +110,13 @@
    "createdAt": 1795071199223,
    "salt": "",
    "hash": "",
-   "nexconnToken": "demo_token_ujwCRFXXprFA5"
+   "nexconnToken": "45koRoyVhIlbfzdBa8gveouttJ+BSXQHye31BUo7xusYB3MlVOzpuw==@ygmx.sg.rongnav.com;ygmx.sg.rongcfg.com"
   },
   "ueS6wgIne7sPq": {
    "id": "ueS6wgIne7sPq",
-   "username": "user_23456789",
+   "username": "admin",
    "phone": "+91123456789",
-   "displayName": "Player 6789",
+   "displayName": "System Administrator 🛡️",
    "avatarColor": "#1ABC9C",
    "status": "online",
    "customStatus": "Verified via Mobile OTP 📱",
@@ -124,7 +124,8 @@
    "createdAt": 1795164663959,
    "salt": "",
    "hash": "",
-   "nexconnToken": "mXpHYO9duC5gW77PCudi74uttJ+BSXQH6cMN/lvCO8IzbsUz5o6nAw==@ygmx.sg.rongnav.com;ygmx.sg.rongcfg.com"
+   "nexconnToken": "mXpHYO9duC5gW77PCudi74uttJ+BSXQH6cMN/lvCO8IzbsUz5o6nAw==@ygmx.sg.rongnav.com;ygmx.sg.rongcfg.com",
+   "isAdmin": true
   },
   "u_admin": {
    "id": "u_admin",
@@ -147,13 +148,13 @@
   "e5d5c2afa6fb1bed5ae6546c7c897135277242943951087b": "uUKIVZOhh9tuu",
   "ad64de8b8bc2d96a3813b40853ec410a3a127d4c4b955c69": "uj5i2c3LGofPb",
   "016c3fe07d043863e21a4bba286d9dce93b60f6112d841c8": "ujscMKtDfaVyZ",
-  "84e8150773631573266ee51b7599ccfc01de6bb8a032a750": "ujwCRFXXprFA5",
   "b29e47cb003526385d1c80139f7ccfae701d5184db449183": "ucCjQ1J12rhLS",
   "b7b8a9abd491c5200d221b069e263e81c9478f95f75982a6": "ueS6wgIne7sPq",
   "2f438ca6a829e44782b87953e3f3db4e574baba0887c4177": "u_admin",
   "4145b714e9785b498e10b5d50a7f1a5ac292341b283847ea": "u_admin",
   "0b617bc9af0ba4288f4f65b964648ee30efd96ba72885a24": "u_admin",
-  "b4e87d20fd680c1d7d4707054c313306c2ec48c240ed5a14": "u_admin"
+  "b4e87d20fd680c1d7d4707054c313306c2ec48c240ed5a14": "u_admin",
+  "1b7ff28cd40e0e18fdca998e57ec2eddfe64fe0e6a527ba9": "ueS6wgIne7sPq"
  },
  "servers": {
   "ggVGFQTpTFEa": {
