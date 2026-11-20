@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
@@ -39,11 +37,7 @@ class ApiService {
   String baseUrl = defaultBaseUrl();
 
   static String defaultBaseUrl() {
-    if (kIsWeb) return 'http://localhost:3001';
-    try {
-      if (Platform.isAndroid) return 'http://10.0.2.2:3001';
-    } catch (_) {}
-    return 'http://localhost:3001';
+    return 'https://nexcord-a85i.onrender.com';
   }
 
   Future<void> loadSaved() async {
@@ -123,6 +117,29 @@ class ApiService {
         'areaCode': areaCode,
         if (fast2smsApiKey.isNotEmpty) 'fast2smsApiKey': fast2smsApiKey,
       });
+
+  Future<Map<String, dynamic>> sendOtp(String phone) async {
+    return _req('POST', '/api/auth/send-otp', {'phone': phone});
+  }
+
+  Future<({String session, NexcordUser user, String nexconnToken})> verifyOtp({
+    required String phone,
+    required String otp,
+    String? displayName,
+  }) async {
+    final j = await _req('POST', '/api/auth/verify-otp', {
+      'phone': phone,
+      'otp': otp,
+      if (displayName != null && displayName.isNotEmpty) 'displayName': displayName,
+    });
+    final tok = j['session']?.toString() ?? '';
+    await setSession(tok);
+    return (
+      session: tok,
+      user: NexcordUser.fromJson(j['user'] as Map<String, dynamic>),
+      nexconnToken: j['nexconnToken']?.toString() ?? '',
+    );
+  }
 
   Future<({String session, NexcordUser user, String nexconnToken})> demoLogin([String? displayName]) async {
     final j = await _req('POST', '/api/auth/demo', {if (displayName != null) 'displayName': displayName});

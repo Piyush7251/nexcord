@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:ai_nexconn_chat_plugin/ai_nexconn_chat_plugin.dart' as nc;
 import 'services/call_engine_stub.dart' as call_nc;
 import 'package:ai_nexconn_chatui_plugin/ai_nexconn_chatui_plugin.dart';
 import 'models/models.dart';
@@ -500,6 +499,32 @@ class _NexcordHomeState extends State<NexcordHome> {
               onPressed: () => Scaffold.of(ctx).openEndDrawer(),
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, size: 20, color: Color(0xFFF23F43)),
+            tooltip: 'Log Out',
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF313338),
+                  title: const Text('Log Out', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  content: const Text('Are you sure you want to log out of Nexcord?', style: TextStyle(color: Color(0xFFB5BAC1))),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancel', style: TextStyle(color: Color(0xFF949BA4))),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDA373C), foregroundColor: Colors.white),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Log Out'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true) await _logout();
+            },
+          ),
         ],
       ),
       drawer: _buildLeftDrawer(context, srv),
@@ -523,10 +548,10 @@ class _NexcordHomeState extends State<NexcordHome> {
           });
         },
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.discord), label: 'Discord'),
-          BottomNavigationBarItem(icon: Icon(Icons.group), label: 'Friends'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Chat UI'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings_input_antenna), label: 'Nexconn SDK'),
+          BottomNavigationBarItem(icon: Icon(Icons.forum_rounded), label: 'Servers'),
+          BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Friends'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat_rounded), label: 'Chat UI'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings_suggest_rounded), label: 'Settings'),
         ],
       ),
     );
@@ -1321,13 +1346,112 @@ class _AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<_AuthScreen> {
+  // Mode: 'otp' | 'pass'
+  String _mode = 'otp';
+
+  // OTP State
+  final _phoneCtrl = TextEditingController();
+  final _otpCtrl = TextEditingController();
+  final _otpNameCtrl = TextEditingController();
+  bool _otpSent = false;
+  int _cooldown = 0;
+  Timer? _cooldownTimer;
+
+  // Password / Demo State
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _demoCtrl = TextEditingController();
-  late final TextEditingController _urlCtrl = TextEditingController(text: widget.api.baseUrl);
   bool _isRegister = false;
+
+  // Server URL
+  late final TextEditingController _urlCtrl = TextEditingController(text: widget.api.baseUrl);
+  bool _showUrlConfig = false;
+
   bool _busy = false;
   String _err = '';
+  String _info = '';
+
+  @override
+  void dispose() {
+    _cooldownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startCooldown() {
+    _cooldown = 30;
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_cooldown > 0) {
+          _cooldown--;
+        } else {
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  String _cleanPhone() {
+    String p = _phoneCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
+    if (p.length == 10) p = '91$p';
+    return p;
+  }
+
+  Future<void> _sendOtp() async {
+    final clean = _cleanPhone();
+    if (clean.length < 10) {
+      setState(() => _err = 'Please enter a valid 10-digit mobile number');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _err = '';
+      _info = '';
+    });
+    try {
+      await widget.api.setBaseUrl(_urlCtrl.text.trim());
+      final res = await widget.api.sendOtp('+$clean');
+      setState(() {
+        _otpSent = true;
+        _info = res['message']?.toString() ?? 'Verification code sent to +$clean';
+      });
+      _startCooldown();
+    } catch (e) {
+      setState(() => _err = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _verifyOtp() async {
+    final otp = _otpCtrl.text.trim();
+    if (otp.length < 4) {
+      setState(() => _err = 'Please enter the 6-digit verification code');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _err = '';
+    });
+    try {
+      await widget.api.setBaseUrl(_urlCtrl.text.trim());
+      final clean = _cleanPhone();
+      final res = await widget.api.verifyOtp(
+        phone: '+$clean',
+        otp: otp,
+        displayName: _otpNameCtrl.text.trim().isEmpty ? null : _otpNameCtrl.text.trim(),
+      );
+      await widget.onAuthenticated(res.user, res.nexconnToken);
+    } catch (e) {
+      setState(() => _err = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _demo() async {
     setState(() {
@@ -1335,29 +1459,35 @@ class _AuthScreenState extends State<_AuthScreen> {
       _err = '';
     });
     try {
-      await widget.api.setBaseUrl(_urlCtrl.text);
+      await widget.api.setBaseUrl(_urlCtrl.text.trim());
       final res = await widget.api.demoLogin(_demoCtrl.text.trim().isEmpty ? null : _demoCtrl.text.trim());
       await widget.onAuthenticated(res.user, res.nexconnToken);
     } catch (e) {
-      setState(() => _err = e.toString());
+      setState(() => _err = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _submit() async {
+  Future<void> _submitPassword() async {
+    final user = _userCtrl.text.trim();
+    final pass = _passCtrl.text;
+    if (user.isEmpty || pass.isEmpty) {
+      setState(() => _err = 'Please fill in all fields');
+      return;
+    }
     setState(() {
       _busy = true;
       _err = '';
     });
     try {
-      await widget.api.setBaseUrl(_urlCtrl.text);
+      await widget.api.setBaseUrl(_urlCtrl.text.trim());
       final res = _isRegister
-          ? await widget.api.register(_userCtrl.text.trim(), _passCtrl.text, _userCtrl.text.trim())
-          : await widget.api.login(_userCtrl.text.trim(), _passCtrl.text);
+          ? await widget.api.register(user, pass, user)
+          : await widget.api.login(user, pass);
       await widget.onAuthenticated(res.user, res.nexconnToken);
     } catch (e) {
-      setState(() => _err = e.toString());
+      setState(() => _err = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1370,101 +1500,598 @@ class _AuthScreenState extends State<_AuthScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 420),
-              padding: const EdgeInsets.all(22),
+              constraints: const BoxConstraints(maxWidth: 440),
+              padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF313338),
-                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFF2B2D31),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF383A40)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black38,
+                    blurRadius: 20,
+                    offset: Offset(0, 8),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Row(
+                  // Logo & Brand Header
+                  Row(
                     children: [
-                      CircleAvatar(
-                        radius: 22,
-                        backgroundColor: Color(0xFF5865F2),
-                        child: Icon(Icons.sports_esports, color: Colors.white),
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF5865F2), Color(0xFF4752C4)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x665865F2),
+                              blurRadius: 10,
+                              offset: Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.sports_esports_rounded, color: Colors.white, size: 28),
                       ),
-                      SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Nexcord Flutter', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                          Text('Android & iOS • Nexconn Chat SDK', style: TextStyle(fontSize: 12, color: Color(0xFF949BA4))),
-                        ],
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Nexcord',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.5,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Gaming, Squad Chat & Live Streams',
+                              style: TextStyle(fontSize: 12, color: Color(0xFF949BA4)),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 20),
+
+                  // Mode Switcher Tabs
                   Container(
-                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0x2023A55A),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0x6623A55A)),
+                      color: const Color(0xFF1E1F22),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                    padding: const EdgeInsets.all(4),
+                    child: Row(
                       children: [
-                        const Text('Instant Squad Demo Entry', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF57F287))),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _demoCtrl,
-                                decoration: const InputDecoration(
-                                  hintText: 'Gamer tag (optional)',
-                                  isDense: true,
-                                  filled: true,
-                                  fillColor: Color(0xFF1E1F22),
-                                ),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() {
+                              _mode = 'otp';
+                              _err = '';
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _mode == 'otp' ? const Color(0xFF5865F2) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.phone_android_rounded,
+                                    size: 16,
+                                    color: _mode == 'otp' ? Colors.white : const Color(0xFF949BA4),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Mobile OTP',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: _mode == 'otp' ? Colors.white : const Color(0xFF949BA4),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF23A55A), foregroundColor: Colors.white),
-                              onPressed: _busy ? null : _demo,
-                              child: const Text('Enter Arena'),
+                          ),
+                        ),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() {
+                              _mode = 'pass';
+                              _err = '';
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _mode == 'pass' ? const Color(0xFF5865F2) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.key_rounded,
+                                    size: 16,
+                                    color: _mode == 'pass' ? Colors.white : const Color(0xFF949BA4),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Password / Demo',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: _mode == 'pass' ? Colors.white : const Color(0xFF949BA4),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _userCtrl,
-                    decoration: const InputDecoration(labelText: 'Username', filled: true, fillColor: Color(0xFF1E1F22)),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _passCtrl,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Password', filled: true, fillColor: Color(0xFF1E1F22)),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _urlCtrl,
-                    decoration: const InputDecoration(labelText: 'Backend Server URL', filled: true, fillColor: Color(0xFF1E1F22)),
-                  ),
+                  const SizedBox(height: 20),
+
+                  // Error Banner
                   if (_err.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Text(_err, style: const TextStyle(color: Color(0xFFFF9A9C), fontSize: 12.5)),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0x22F23F43),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0x66F23F43)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: Color(0xFFF23F43), size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _err,
+                              style: const TextStyle(color: Color(0xFFFF9A9C), fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                   ],
-                  const SizedBox(height: 14),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5865F2), foregroundColor: Colors.white),
-                    onPressed: _busy ? null : _submit,
-                    child: Text(_isRegister ? 'Register Account' : 'Log In'),
+
+                  // Info Banner
+                  if (_info.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0x2223A55A),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0x6623A55A)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF57F287), size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _info,
+                              style: const TextStyle(color: Color(0xFF57F287), fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // Tab 1: Mobile OTP Login
+                  if (_mode == 'otp') ...[
+                    if (!_otpSent) ...[
+                      const Text(
+                        'Enter Your Mobile Number',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'A 6-digit verification code will be sent to your phone.',
+                        style: TextStyle(fontSize: 12.5, color: Color(0xFF949BA4)),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1F22),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF383A40)),
+                            ),
+                            child: const Text(
+                              '🇮🇳 +91',
+                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _phoneCtrl,
+                              keyboardType: TextInputType.phone,
+                              style: const TextStyle(color: Colors.white, fontSize: 15),
+                              decoration: InputDecoration(
+                                hintText: '9876543210',
+                                hintStyle: const TextStyle(color: Color(0xFF6D6F78)),
+                                filled: true,
+                                fillColor: const Color(0xFF1E1F22),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Color(0xFF383A40)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Color(0xFF383A40)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Color(0xFF5865F2)),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5865F2),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 2,
+                        ),
+                        onPressed: _busy ? null : _sendOtp,
+                        child: _busy
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.send_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Send Verification Code',
+                                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ] else ...[
+                      // OTP Verification Step
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Enter 6-Digit Code',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() {
+                              _otpSent = false;
+                              _err = '';
+                              _info = '';
+                            }),
+                            child: const Text('Change Number', style: TextStyle(fontSize: 12, color: Color(0xFF5865F2))),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'Sent to +${_cleanPhone()}',
+                        style: const TextStyle(fontSize: 12.5, color: Color(0xFF949BA4)),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _otpCtrl,
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        maxLength: 6,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 12,
+                          color: Color(0xFF57F287),
+                        ),
+                        decoration: InputDecoration(
+                          counterText: '',
+                          hintText: '••••••',
+                          hintStyle: const TextStyle(color: Color(0xFF6D6F78), letterSpacing: 10),
+                          filled: true,
+                          fillColor: const Color(0xFF1E1F22),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFF57F287)),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Optional Gamer Tag / Display Name
+                      TextField(
+                        controller: _otpNameCtrl,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: InputDecoration(
+                          labelText: 'Your Gamer Tag (Optional)',
+                          labelStyle: const TextStyle(color: Color(0xFF949BA4), fontSize: 13),
+                          filled: true,
+                          fillColor: const Color(0xFF1E1F22),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Quick Test Auto-fill Button
+                      GestureDetector(
+                        onTap: () {
+                          _otpCtrl.text = '123456';
+                          setState(() {});
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0x185865F2),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0x445865F2)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.bolt_rounded, size: 14, color: Color(0xFF8EA1E1)),
+                              SizedBox(width: 4),
+                              Text(
+                                'Tap to auto-fill test code 123456',
+                                style: TextStyle(fontSize: 11.5, color: Color(0xFF8EA1E1), fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF23A55A),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 2,
+                        ),
+                        onPressed: _busy ? null : _verifyOtp,
+                        child: _busy
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Verify & Enter Nexcord',
+                                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                      ),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: TextButton(
+                          onPressed: _cooldown > 0 || _busy ? null : _sendOtp,
+                          child: Text(
+                            _cooldown > 0 ? 'Resend code in ${_cooldown}s' : 'Resend Verification Code',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: _cooldown > 0 ? const Color(0xFF6D6F78) : const Color(0xFF5865F2),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ] else ...[
+                    // Tab 2: Password & Demo Login
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0x1823A55A),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0x4423A55A)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.flash_on_rounded, color: Color(0xFF57F287), size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Instant Guest Demo Join',
+                                style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF57F287), fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _demoCtrl,
+                                  style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                                  decoration: InputDecoration(
+                                    hintText: 'Gamer tag (optional)',
+                                    hintStyle: const TextStyle(color: Color(0xFF6D6F78)),
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: const Color(0xFF1E1F22),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                      borderSide: const BorderSide(color: Color(0xFF383A40)),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF23A55A),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                ),
+                                onPressed: _busy ? null : _demo,
+                                child: const Text('Enter Arena', style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _userCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'Username',
+                        labelStyle: const TextStyle(color: Color(0xFF949BA4), fontSize: 13),
+                        filled: true,
+                        fillColor: const Color(0xFF1E1F22),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _passCtrl,
+                      obscureText: true,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        labelStyle: const TextStyle(color: Color(0xFF949BA4), fontSize: 13),
+                        filled: true,
+                        fillColor: const Color(0xFF1E1F22),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF5865F2),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: _busy ? null : _submitPassword,
+                      child: Text(
+                        _isRegister ? 'Register Account' : 'Log In',
+                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => setState(() => _isRegister = !_isRegister),
+                      child: Text(
+                        _isRegister ? 'Have an account? Log In' : 'Need an account? Register',
+                        style: const TextStyle(color: Color(0xFF5865F2), fontSize: 13),
+                      ),
+                    ),
+                  ],
+
+                  // Server URL Config Collapsible
+                  const Divider(color: Color(0xFF383A40), height: 30),
+                  GestureDetector(
+                    onTap: () => setState(() => _showUrlConfig = !_showUrlConfig),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.cloud_outlined, size: 14, color: Color(0xFF949BA4)),
+                        const SizedBox(width: 6),
+                        Text(
+                          _urlCtrl.text.replaceFirst('https://', '').replaceFirst('http://', ''),
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF949BA4)),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          _showUrlConfig ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                          size: 16,
+                          color: const Color(0xFF949BA4),
+                        ),
+                      ],
+                    ),
                   ),
-                  TextButton(
-                    onPressed: () => setState(() => _isRegister = !_isRegister),
-                    child: Text(_isRegister ? 'Have an account? Log In' : 'Need an account? Register'),
-                  ),
+                  if (_showUrlConfig) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _urlCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 12.5),
+                      decoration: InputDecoration(
+                        labelText: 'Backend Server URL',
+                        labelStyle: const TextStyle(color: Color(0xFF949BA4), fontSize: 12),
+                        isDense: true,
+                        filled: true,
+                        fillColor: const Color(0xFF1E1F22),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
