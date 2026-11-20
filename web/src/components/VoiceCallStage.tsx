@@ -158,7 +158,7 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
                 }}
                 autoPlay
                 playsInline
-                muted={isMe || callState.deafened}
+                muted={true}
                 className="nc-voice-video"
                 style={{
                   display: hasVideo ? 'block' : 'none',

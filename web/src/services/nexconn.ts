@@ -654,16 +654,6 @@ class NexconnService {
       const audioTrack = stream.getAudioTracks().find((t) => t.readyState === 'live') || stream.getAudioTracks()[0];
       if (!audioTrack) return;
 
-      if (this.audioContext && this.audioContext.state !== 'closed') {
-        if (this.audioContext.state === 'suspended') {
-          this.audioContext.resume().catch(() => {});
-        }
-        try {
-          const src = this.audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
-          src.connect(this.audioContext.destination);
-        } catch {}
-      }
-
       let audio = this.remoteAudioElements.get(userId);
       if (!audio) {
         audio = new Audio();
@@ -835,7 +825,7 @@ class NexconnService {
     return pc;
   }
 
-  async syncTracksToPeers() {
+  async syncTracksToPeers(allowRenegotiation = true) {
     const broadcastStream = this.getBroadcastStream();
     const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live') || null;
     const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live') || null;
@@ -892,7 +882,7 @@ class NexconnService {
         } catch {}
       }
 
-      if (needsRenegotiation) {
+      if (allowRenegotiation && needsRenegotiation && pc.signalingState === 'stable') {
         this.renegotiatePeer(peerId).catch(() => {});
       }
     }
@@ -989,7 +979,7 @@ class NexconnService {
 
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         await drainCandidates();
-        await this.syncTracksToPeers();
+        await this.syncTracksToPeers(false);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await api
@@ -1001,7 +991,7 @@ class NexconnService {
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
           await drainCandidates();
           this.log('call', 'WebRTC.connected', `from=${fromUserId}`, 'ok');
-          await this.syncTracksToPeers();
+          await this.syncTracksToPeers(false);
         }
       } else if (signal.type === 'candidate' && signal.candidate) {
         if (!pc.remoteDescription || !pc.remoteDescription.type) {
@@ -1123,7 +1113,7 @@ class NexconnService {
             this.setScreenStream(null);
           };
         }
-        await this.syncTracksToPeers();
+        await this.syncTracksToPeers(false);
         this.log('call', 'ScreenShare.start', 'Started screen capture stream', 'ok');
         return stream;
       }
@@ -1149,7 +1139,7 @@ class NexconnService {
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
         });
         vStream.getVideoTracks().forEach((vt) => this.localStream!.addTrack(vt));
-        await this.syncTracksToPeers();
+        await this.syncTracksToPeers(false);
         return this.localStream;
       }
 
@@ -1158,7 +1148,7 @@ class NexconnService {
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
         aStream.getAudioTracks().forEach((at) => this.localStream!.addTrack(at));
-        await this.syncTracksToPeers();
+        await this.syncTracksToPeers(false);
         return this.localStream;
       }
 
@@ -1202,7 +1192,7 @@ class NexconnService {
             });
           }
           this.localStream = fallbackStream;
-          await this.syncTracksToPeers();
+          await this.syncTracksToPeers(false);
           return fallbackStream;
         } catch (fbErr) {
           console.warn('[VoiceChat] Fallback getUserMedia error:', fbErr);
