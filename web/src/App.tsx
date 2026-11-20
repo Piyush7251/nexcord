@@ -27,6 +27,7 @@ import {
   Search,
   Send,
   Settings,
+  Shield,
   Smile,
   Trash2,
   Tv,
@@ -68,6 +69,7 @@ import {
   UserProfileModal,
   UserSettingsModal,
 } from './components/Modals';
+import { AdminPanel } from './components/AdminPanel';
 import './App.css';
 
 const QUICK_EMOJIS = ['🔥', '❤️', '😂', '⚡', '👑', '👍', '🎯', '🚀'];
@@ -172,6 +174,7 @@ export function App() {
   const [showServerMenu, setShowServerMenu] = useState(false);
   const [copiedServerId, setCopiedServerId] = useState(false);
   const [showUserSettings, setShowUserSettings] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [profileUser, setProfileUser] = useState<User | null>(null);
 
@@ -378,6 +381,14 @@ export function App() {
         // ignore
       }
     });
+    es.addEventListener('broadcast', (e: MessageEvent) => {
+      try {
+        const { title, message } = JSON.parse(e.data);
+        alert(`📢 ${title}\n\n${message}`);
+      } catch {
+        // ignore
+      }
+    });
     es.addEventListener('message-update', (e: MessageEvent) => {
       try {
         const { targetKey, message } = JSON.parse(e.data) as { targetKey: string; message: ChatMessage };
@@ -454,6 +465,13 @@ export function App() {
     }, 1500);
     return () => clearInterval(timer);
   }, []);
+
+  // Check URL hash for direct admin routing
+  useEffect(() => {
+    if (me?.isAdmin && (window.location.hash === '#admin' || window.location.hash === '#admin-panel')) {
+      setShowAdminModal(true);
+    }
+  }, [me]);
 
   // Load history when switching channels or DMs
   useEffect(() => {
@@ -886,6 +904,19 @@ export function App() {
 
         <div className="nc-rail-spacer" />
 
+        {me?.isAdmin && (
+          <div className="nc-rail-item-wrap">
+            <button
+              type="button"
+              className="nc-rail-icon admin-rail-btn"
+              onClick={() => setShowAdminModal(true)}
+              title="Admin Command Center 🛡️ (APIs, Telemetry, Logs & Controls)"
+            >
+              <Shield size={22} />
+            </button>
+          </div>
+        )}
+
         <div className="nc-rail-item-wrap">
           <button
             type="button"
@@ -1195,6 +1226,17 @@ export function App() {
             <button type="button" className="nc-icon-btn sm" onClick={() => setShowUserSettings(true)} title="User Settings">
               <Settings size={16} />
             </button>
+            {me.isAdmin && (
+              <button
+                type="button"
+                className="nc-icon-btn sm"
+                style={{ color: '#FEE75C' }}
+                onClick={() => setShowAdminModal(true)}
+                title="Admin Command Center 🛡️"
+              >
+                <Shield size={16} />
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -2387,6 +2429,13 @@ export function App() {
             setIncomingCall(null);
             await nexconn.endCall(c.callId);
           }}
+        />
+      )}
+
+      {showAdminModal && me?.isAdmin && (
+        <AdminPanel
+          currentUser={me}
+          onClose={() => setShowAdminModal(false)}
         />
       )}
     </div>

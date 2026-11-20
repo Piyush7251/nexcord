@@ -4216,3 +4216,573 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* =========================================================
+   ADMIN COMMAND CENTER & TELEMETRY STYLES
+   ========================================================= */
+
+.nc-rail-icon.admin-rail-btn {
+  background: linear-gradient(135deg, #d97706, #ef4444);
+  color: #fff;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.45);
+  animation: nc-admin-pulse 3s infinite alternate;
+}
+
+.nc-rail-icon.admin-rail-btn:hover {
+  background: linear-gradient(135deg, #f59e0b, #dc2626);
+  border-radius: 14px;
+}
+
+@keyframes nc-admin-pulse {
+  0% { box-shadow: 0 0 8px rgba(245, 158, 11, 0.3); }
+  100% { box-shadow: 0 0 16px rgba(239, 68, 68, 0.6); }
+}
+
+.nc-admin-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(6px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.nc-admin-modal {
+  width: 100%;
+  max-width: 1140px;
+  height: 90vh;
+  max-height: 860px;
+  background: #1e1f22;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  color: #dbdee1;
+}
+
+.nc-admin-header {
+  padding: 16px 22px;
+  background: #111214;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nc-admin-header-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nc-admin-badge-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+.nc-admin-header-title h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nc-admin-header-title p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #949ba4;
+}
+
+.nc-badge-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(88, 101, 242, 0.2);
+  color: #5865f2;
+  border: 1px solid rgba(88, 101, 242, 0.3);
+}
+
+.nc-badge-pill.green {
+  background: rgba(35, 165, 90, 0.18);
+  color: #57f287;
+  border-color: rgba(87, 242, 135, 0.3);
+}
+
+.nc-badge-pill.amber {
+  background: rgba(245, 158, 11, 0.18);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.nc-admin-tabs {
+  display: flex;
+  background: #2b2d31;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+  gap: 4px;
+}
+
+.nc-admin-tabs button {
+  background: transparent;
+  border: none;
+  color: #949ba4;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.nc-admin-tabs button:hover {
+  color: #dbdee1;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nc-admin-tabs button.active {
+  color: #fff;
+  border-bottom: 2px solid #5865f2;
+  background: rgba(88, 101, 242, 0.08);
+}
+
+.nc-admin-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px;
+  background: #1e1f22;
+}
+
+.nc-admin-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.nc-stat-box {
+  background: #2b2d31;
+  border-radius: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.nc-stat-box span {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #949ba4;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.nc-stat-box strong {
+  font-size: 18px;
+  color: #fff;
+}
+
+.nc-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.nc-admin-card {
+  background: #2b2d31;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.nc-admin-card.whatsapp {
+  border-top: 3px solid #25d366;
+}
+
+.nc-admin-card.nexconn {
+  border-top: 3px solid #5865f2;
+}
+
+.nc-admin-card.webrtc {
+  border-top: 3px solid #f59e0b;
+}
+
+.nc-admin-card.server {
+  border-top: 3px solid #06b6d4;
+}
+
+.nc-admin-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.nc-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  margin-right: 10px;
+}
+
+.nc-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f2f3f5;
+  margin: 0;
+}
+
+.nc-card-sub {
+  font-size: 12px;
+  color: #949ba4;
+  margin: 2px 0 0;
+}
+
+.nc-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nc-status-badge.green {
+  background: rgba(35, 165, 90, 0.16);
+  color: #57f287;
+  border: 1px solid rgba(87, 242, 135, 0.3);
+}
+
+.nc-status-badge.amber {
+  background: rgba(245, 158, 11, 0.16);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.nc-status-badge.gray {
+  background: rgba(255, 255, 255, 0.08);
+  color: #949ba4;
+}
+
+.nc-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.nc-admin-card-metrics {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 14px;
+}
+
+.nc-metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding-bottom: 6px;
+}
+
+.nc-metric-row span {
+  color: #949ba4;
+}
+
+.nc-metric-row strong {
+  color: #f2f3f5;
+  font-family: monospace;
+}
+
+.nc-metric-row.highlight strong {
+  color: #57f287;
+}
+
+.nc-admin-card-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* API Config Form */
+.nc-admin-form-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.nc-admin-form-card {
+  background: #2b2d31;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nc-form-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.nc-form-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+}
+
+.nc-form-header p {
+  font-size: 12px;
+  color: #949ba4;
+  margin: 2px 0 0;
+}
+
+.nc-input-password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nc-input-password-wrap input {
+  width: 100%;
+  padding-right: 40px !important;
+}
+
+.nc-input-password-wrap button {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #949ba4;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+}
+
+.nc-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.nc-field-hint {
+  font-size: 11px;
+  color: #949ba4;
+  margin-top: 4px;
+}
+
+/* Logs Terminal */
+.nc-logs-terminal {
+  display: flex;
+  flex-direction: column;
+  height: 620px;
+  background: #111214;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.nc-logs-toolbar {
+  padding: 10px 14px;
+  background: #18191c;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nc-search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #2b2d31;
+  padding: 6px 10px;
+  border-radius: 6px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.nc-search-box input {
+  background: transparent;
+  border: none;
+  color: #dbdee1;
+  font-size: 12.5px;
+  outline: none;
+  width: 100%;
+}
+
+.nc-select {
+  background: #2b2d31;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #dbdee1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+.nc-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #949ba4;
+  cursor: pointer;
+}
+
+.nc-logs-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nc-log-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.nc-log-msg.error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border-left: 3px solid #ef4444;
+}
+
+.nc-log-msg.warn {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border-left: 3px solid #f59e0b;
+}
+
+.nc-log-msg.info {
+  color: #dbdee1;
+  border-left: 3px solid #5865f2;
+}
+
+.nc-log-time {
+  color: #6d737d;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.nc-log-tag {
+  color: #93c5fd;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.nc-log-details {
+  color: #949ba4;
+  font-size: 11px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+/* Admin Tables */
+.nc-admin-table-wrap {
+  background: #2b2d31;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.nc-table-toolbar {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #232428;
+}
+
+.nc-admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.nc-admin-table th {
+  padding: 12px 16px;
+  background: #232428;
+  color: #949ba4;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nc-admin-table td {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  color: #dbdee1;
+}
+
+.nc-admin-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.nc-table-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #5865f2;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 12px;
+}

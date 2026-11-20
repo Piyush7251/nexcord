@@ -208,4 +208,37 @@ export const api = {
   removeFriend: (userId: string) => req(`/api/friends/${userId}`, { method: 'DELETE' }),
   openDm: (userId: string) => req('/api/dms/open', { method: 'POST', body: JSON.stringify({ userId }) }),
   closeDm: (userId: string) => req('/api/dms/close', { method: 'POST', body: JSON.stringify({ userId }) }),
+
+  // Admin Console API
+  adminGetOverview: () => req<any>('/api/admin/overview'),
+  adminGetLogs: (params: { limit?: number; tag?: string; level?: string; search?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.tag) q.set('tag', params.tag);
+    if (params.level) q.set('level', params.level);
+    if (params.search) q.set('search', params.search);
+    return req<{ logs: any[]; total: number }>(`/api/admin/logs?${q.toString()}`);
+  },
+  adminClearLogs: () => req<{ ok: boolean }>('/api/admin/logs', { method: 'DELETE' }),
+  adminGetConfig: () => req<any>('/api/admin/config'),
+  adminSaveConfig: (payload: any) =>
+    req<{ ok: boolean; message: string; fast2smsVerified: boolean; walletBalance?: string }>('/api/admin/config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  adminTestApi: (type: 'fast2sms' | 'nexconn', apiKey?: string) =>
+    req<any>('/api/admin/test-api', { method: 'POST', body: JSON.stringify({ type, apiKey }) }),
+  adminGetUsers: () => req<{ users: any[]; total: number }>('/api/admin/users'),
+  adminToggleUserAdmin: (userId: string) =>
+    req<{ ok: boolean; user: User }>(`/api/admin/users/${userId}/toggle-admin`, { method: 'POST' }),
+  adminDeleteUser: (userId: string) =>
+    req<{ ok: boolean; message: string }>(`/api/admin/users/${userId}`, { method: 'DELETE' }),
+  adminGetServers: () => req<{ servers: any[]; total: number }>('/api/admin/servers'),
+  adminDeleteServer: (serverId: string) =>
+    req<{ ok: boolean; message: string }>(`/api/admin/servers/${serverId}`, { method: 'DELETE' }),
+  adminBroadcast: (title: string, message: string) =>
+    req<{ ok: boolean; message: string; recipients?: number }>('/api/admin/broadcast', {
+      method: 'POST',
+      body: JSON.stringify({ title, message }),
+    }),
 };

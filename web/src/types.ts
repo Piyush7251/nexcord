@@ -12,6 +12,7 @@ export interface User {
   about?: string;
   createdAt: number;
   isBot?: boolean;
+  isAdmin?: boolean;
 }
 
 export interface RolePermissions {

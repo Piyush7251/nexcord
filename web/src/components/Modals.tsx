@@ -209,12 +209,30 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                       type="tel"
                       value={phoneDigits}
                       onChange={(e) => setPhoneDigits(e.target.value)}
-                      placeholder="e.g. 98765 43210"
+                      placeholder="e.g. 98765 43210 (or 123456789 for Admin)"
                       required
                       autoFocus
                     />
                   </div>
                 </label>
+
+                {phoneDigits.replace(/\D/g, '') === '123456789' && (
+                  <div style={{
+                    background: 'rgba(88, 101, 242, 0.15)',
+                    border: '1px solid #5865F2',
+                    color: '#85bbfb',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    fontSize: 12.5,
+                    marginBottom: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <Shield size={16} color="#FEE75C" />
+                    <span><strong>Admin Master Account Recognized 🛡️:</strong> Click below to verify with OTP <code>123456</code>.</span>
+                  </div>
+                )}
 
                 <label className="nc-field">
                   <span>DISPLAY NAME (OPTIONAL)</span>
@@ -267,6 +285,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                     required
                   />
                 </label>
+
+                {(phoneDigits.replace(/\D/g, '') === '123456789' || fullPhone.includes('123456789')) && (
+                  <div style={{
+                    background: 'rgba(254, 231, 92, 0.12)',
+                    border: '1px solid #FEE75C',
+                    color: '#FEE75C',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    fontSize: 12.5,
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Shield size={16} />
+                      <span>Admin Passcode: <strong>123456</strong></span>
+                    </div>
+                    <button
+                      type="button"
+                      className="nc-btn"
+                      style={{ padding: '3px 10px', fontSize: 11, background: '#FEE75C', color: '#111', fontWeight: 'bold' }}
+                      onClick={() => setOtp('123456')}
+                    >
+                      Auto-fill 123456
+                    </button>
+                  </div>
+                )}
 
                 {err && <div className="nc-error-banner">{err}</div>}
 
