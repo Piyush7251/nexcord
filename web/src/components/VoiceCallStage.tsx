@@ -50,19 +50,6 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   const [showInvite, setShowInvite] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
 
-  useEffect(() => {
-    if ((callState.cameraEnabled || callState.screenSharing) && localVideoRef.current) {
-      nexconn.bindLocalVideo(localVideoRef.current);
-    }
-  }, [callState.cameraEnabled, callState.screenSharing]);
-
-  useEffect(() => {
-    for (const pid of callState.peerIds) {
-      const el = remoteVideoRefs.current[pid];
-      if (el) nexconn.bindRemoteVideo(pid, el);
-    }
-  }, [callState.peerIds]);
-
   const participantIds = Array.from(
     new Set([
       me.id,
@@ -70,6 +57,21 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
       ...callState.peerIds,
     ]),
   );
+
+  useEffect(() => {
+    if ((callState.cameraEnabled || callState.screenSharing) && localVideoRef.current) {
+      nexconn.bindLocalVideo(localVideoRef.current);
+    }
+  }, [callState.cameraEnabled, callState.screenSharing]);
+
+  useEffect(() => {
+    participantIds.forEach((pid) => {
+      if (pid !== me.id) {
+        const el = remoteVideoRefs.current[pid];
+        if (el) nexconn.bindRemoteVideo(pid, el);
+      }
+    });
+  }, [participantIds, voiceParticipants, callState.peerIds]);
 
   const inviteCandidates = Object.values(users).filter(
     (u) => u.id !== me.id && !participantIds.includes(u.id),
@@ -126,9 +128,11 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
           const muted = isMe ? callState.micMuted : !!vp?.muted;
           const deafened = isMe ? callState.deafened : !!vp?.deafened;
           const isStreaming = isMe ? callState.screenSharing : !!vp?.streaming;
+          const remoteStream = !isMe ? nexconn.getRemoteStream(uid) : null;
+          const hasRemoteLiveVideo = !!remoteStream?.getVideoTracks().some((t) => t.readyState === 'live');
           const hasVideo = isMe
             ? (callState.cameraEnabled || callState.screenSharing)
-            : (!!vp?.video || !!vp?.streaming);
+            : (!!vp?.video || !!vp?.streaming || hasRemoteLiveVideo);
 
           return (
             <div key={uid} className={`nc-voice-tile ${!muted ? 'active' : ''}`}>
