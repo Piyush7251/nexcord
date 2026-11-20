@@ -41,3 +41,6 @@ scratch/
 Thumbs.db
 flutter/
 .continue/
+
+*.apk
+

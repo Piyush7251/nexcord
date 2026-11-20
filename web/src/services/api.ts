@@ -1,15 +1,14 @@
 import type { ChatMessage, NexconnConfig, Server, SquadLobbyState, SyncPayload, User } from '../types';
 
-const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
-const DEFAULT_MOBILE_API = isAndroid ? 'http://10.0.2.2:3001' : 'http://localhost:3001';
+const PRODUCTION_API = 'https://nexcord-a85i.onrender.com';
 
 export function getApiBase(): string {
   const saved = localStorage.getItem('nexcord_api_base');
   if (saved) return saved.replace(/\/+$/, '');
   if (typeof window !== 'undefined') {
-    const proto = window.location.protocol;
-    if (proto === 'capacitor:' || proto === 'file:') {
-      return DEFAULT_MOBILE_API;
+    const isCapacitor = !!(window as any).Capacitor || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:';
+    if (isCapacitor) {
+      return PRODUCTION_API;
     }
   }
   return '';
