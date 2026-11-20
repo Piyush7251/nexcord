@@ -235,7 +235,7 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
     provider: smsResult.provider,
     deliveredToCarrier: smsResult.deliveredToCarrier,
     message: smsResult.deliveredToCarrier
-      ? `SMS sent via Fast2SMS to ${clean}`
+      ? `Verification code sent via WhatsApp to ${clean}`
       : (smsResult.details ? `Fast2SMS: ${smsResult.details}` : `Verification code sent to ${clean}`),
   });
 }));

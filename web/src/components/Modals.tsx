@@ -240,22 +240,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
 
                 <button type="submit" className="nc-btn primary full" disabled={busy}>
                   <Phone size={15} />
-                  <span>{busy ? 'Sending SMS...' : 'Send SMS Verification Code'}</span>
+                  <span>{busy ? 'Sending OTP...' : 'Send WhatsApp Verification Code'}</span>
                 </button>
               </form>
             ) : (
               <form onSubmit={handleVerify} className="nc-auth-form">
                 <div style={{ textAlign: 'left', marginBottom: 14 }}>
                   <h2 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px', color: '#f2f3f5' }}>
-                    Enter SMS Verification Code
+                    Enter WhatsApp Verification Code
                   </h2>
                   <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    An SMS with your 6-digit code was sent to <strong>{fullPhone}</strong> via Fast2SMS.
+                    A 6-digit code was sent to your WhatsApp at <strong>{fullPhone}</strong>.
                   </p>
                 </div>
 
                 <label className="nc-field">
-                  <span>6-DIGIT SMS CODE</span>
+                  <span>6-DIGIT VERIFICATION CODE</span>
                   <input
                     className="nc-otp-input"
                     type="text"
@@ -292,7 +292,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                     disabled={cooldown > 0 || busy}
                     onClick={() => handleSendOtp()}
                   >
-                    {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend SMS Code'}
+                    {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend WhatsApp Code'}
                   </button>
                 </div>
               </form>
