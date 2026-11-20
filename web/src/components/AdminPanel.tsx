@@ -209,6 +209,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onClose }) 
     }
   };
 
+  // Test Nexconn Engine
+  const handleTestNexconn = async () => {
+    setTestingKey(true);
+    setFeedback(null);
+    try {
+      const res = await api.adminTestApi('nexconn');
+      if (res.connected) {
+        setFeedback({
+          text: '✓ Nexconn Real-Time Engine is active and ready!',
+          type: 'success',
+        });
+      } else {
+        setFeedback({
+          text: 'Nexconn credentials not yet configured (running in local sandbox mode)',
+          type: 'info',
+        });
+      }
+      refreshData();
+    } catch (e: any) {
+      setFeedback({ text: `Nexconn test error: ${e.message}`, type: 'error' });
+    } finally {
+      setTestingKey(false);
+    }
+  };
+
   // Save Nexconn Credentials
   const handleSaveNexconn = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -739,6 +764,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onClose }) 
                       <CheckCircle2 size={14} />
                       <span>Save Nexconn Credentials</span>
                     </button>
+                    <button
+                      type="button"
+                      className="nc-btn secondary"
+                      disabled={testingKey}
+                      onClick={handleTestNexconn}
+                    >
+                      <Zap size={14} />
+                      <span>Test Engine</span>
+                    </button>
+                  </div>
+
+                  <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(88, 101, 242, 0.1)', border: '1px solid rgba(88, 101, 242, 0.3)', fontSize: 12 }}>
+                    <strong style={{ color: '#fff' }}>Nexconn Webhooks Endpoint:</strong>
+                    <div style={{ fontFamily: 'monospace', color: '#57F287', marginTop: 4, userSelect: 'all' }}>
+                      https://nexcord-a85i.onrender.com/api/webhooks/nexconn
+                    </div>
+                    <div style={{ color: '#949ba4', fontSize: 11, marginTop: 4 }}>
+                      Paste this URL in your Nexconn Dashboard to ingest Call Started/Ended events, AI Summaries, Live Moderation alerts, and WebRTC telemetry straight into this Admin Console.
+                    </div>
                   </div>
                 </form>
 

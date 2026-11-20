@@ -1424,6 +1424,32 @@ app.post('/api/admin/broadcast', requireAdmin, wrap(async (req, res) => {
   res.json({ ok: true, recipients: streams.size, message: 'Broadcast transmitted to all active users' });
 }));
 
+// =========================================================================
+// 8. NEXCONN WEBHOOK RECEIVER (Call Events, AI Summaries & Moderation)
+// =========================================================================
+app.post(['/api/webhooks/nexconn', '/api/webhooks/call'], wrap(async (req, res) => {
+  const event = req.body || {};
+  const eventType = event.eventType || event.event || event.action || 'unknown';
+  const data = event.data || event.payload || event;
+
+  addLog('info', 'NEXCONN', `Webhook event received: ${eventType}`);
+
+  // Process Call Events & AI Summaries
+  if (eventType.includes('call.started') || eventType === 'call_start') {
+    addLog('success', 'NEXCONN', `Call Started [${data.callId || 'unknown'}] — Caller: ${data.callerId || 'unknown'}`);
+  } else if (eventType.includes('call.ended') || eventType === 'call_end') {
+    addLog('info', 'NEXCONN', `Call Ended [${data.callId || 'unknown'}] — Duration: ${data.duration || 0}s`);
+  } else if (eventType.includes('call.summary') || eventType === 'summary') {
+    addLog('success', 'NEXCONN', `AI Call Summary for [${data.callId || 'unknown'}]: "${data.summary || data.text || ''}"`);
+  } else if (eventType.includes('moderation') || eventType === 'safety_violation') {
+    addLog('error', 'NEXCONN', `⚠️ Moderation Alert [${data.callId || data.channelId || 'unknown'}]: ${data.violationType || 'Safety violation detected'}`);
+  } else if (eventType.includes('transcription') || eventType === 'caption') {
+    addLog('info', 'NEXCONN', `AI Live Transcription [${data.callId || 'unknown'}]: "${data.transcript || data.text || ''}"`);
+  }
+
+  res.json({ ok: true, received: true, eventType });
+}));
+
 
 app.listen(PORT, () => {
   console.log(`Nexcord server listening on http://localhost:${PORT}`);
