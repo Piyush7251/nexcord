@@ -1427,7 +1427,30 @@ app.post('/api/admin/broadcast', requireAdmin, wrap(async (req, res) => {
 // =========================================================================
 // 8. NEXCONN WEBHOOK RECEIVER (Call Events, AI Summaries & Moderation)
 // =========================================================================
-app.post(['/api/webhooks/nexconn', '/api/webhooks/call'], wrap(async (req, res) => {
+app.all(['/api/webhooks/nexconn', '/api/webhooks/call'], wrap(async (req, res) => {
+  // Handle GET verification / healthcheck from browser or webhook challenge
+  if (req.method === 'GET') {
+    const challenge = req.query.challenge || req.query['hub.challenge'] || req.query.echostr;
+    if (challenge) {
+      return res.status(200).send(challenge);
+    }
+    return res.json({
+      ok: true,
+      service: 'Nexconn Webhook Gateway',
+      status: 'active',
+      method: 'GET',
+      message: 'Nexconn Webhook Endpoint is healthy and listening for HTTP POST events.',
+      supportedEvents: [
+        'call.started',
+        'call.ended',
+        'call.summary',
+        'transcription',
+        'moderation.alert'
+      ],
+      timestamp: Date.now()
+    });
+  }
+
   const event = req.body || {};
   const eventType = event.eventType || event.event || event.action || 'unknown';
   const data = event.data || event.payload || event;
