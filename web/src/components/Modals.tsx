@@ -52,6 +52,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
   const [otp, setOtp] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [cooldown, setCooldown] = useState(0);
+  const [devOtp, setDevOtp] = useState('');
 
   // Password fallback mode states
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -76,7 +77,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
     setBusy(true);
     try {
       if (serverUrl.trim()) setApiBase(serverUrl.trim());
-      await api.sendOtp(fullPhone);
+      const res = await api.sendOtp(fullPhone);
+      if (res?.devOtp) setDevOtp(res.devOtp);
       setMobileStep('otp');
       setCooldown(30);
 
@@ -257,6 +259,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                   </p>
                 </div>
 
+                {devOtp && (
+                  <div style={{ background: '#1e1f22', borderRadius: 8, padding: '10px 14px', marginBottom: 14, border: '1px solid #5865f2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#949ba4', fontWeight: 600 }}>INSTANT VERIFICATION CODE</div>
+                      <div style={{ fontSize: 20, color: '#57f287', fontWeight: 700, letterSpacing: 3 }}>{devOtp}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="nc-btn primary sm"
+                      onClick={() => setOtp(devOtp)}
+                      style={{ padding: '6px 12px', fontSize: 12 }}
+                    >
+                      ⚡ Auto-fill
+                    </button>
+                  </div>
+                )}
+
                 <label className="nc-field">
                   <span>6-DIGIT SMS CODE</span>
                   <input
@@ -296,6 +315,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                     onClick={() => handleSendOtp()}
                   >
                     {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend SMS Code'}
+                  </button>
+                </div>
+
+                <div style={{ textAlign: 'center', marginTop: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => setOtp('123456')}
+                    style={{ background: 'none', border: 'none', color: '#949ba4', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Skip SMS (Use Quick Test Code: 123456)
                   </button>
                 </div>
               </form>
