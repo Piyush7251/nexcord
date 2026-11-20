@@ -170,11 +170,10 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
           const muted = isMe ? callState.micMuted : !!vp?.muted;
           const deafened = isMe ? callState.deafened : !!vp?.deafened;
           const isStreaming = isMe ? callState.screenSharing : !!vp?.streaming;
-          const remoteStream = !isMe ? nexconn.getRemoteStream(uid) : null;
-          const hasRemoteLiveVideo = !!remoteStream?.getVideoTracks().some((t) => t.readyState === 'live');
+          const isRemoteActive = vp ? (!!vp.video || !!vp.streaming) : (callState.mediaType === 'video');
           const hasVideo = isMe
-            ? (callState.cameraEnabled || callState.screenSharing)
-            : (!!vp?.video || !!vp?.streaming || hasRemoteLiveVideo);
+            ? !!(callState.cameraEnabled || callState.screenSharing)
+            : isRemoteActive;
 
           return (
             <div

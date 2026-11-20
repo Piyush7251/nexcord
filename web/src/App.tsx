@@ -382,6 +382,10 @@ export function App() {
         setIncomingCall(null);
         setCallState(INITIAL_CALL);
       },
+      onScreenShareEnded: async () => {
+        setCallState((prev) => ({ ...prev, screenSharing: false }));
+        await api.updateVoiceState({ streaming: false }).catch(() => {});
+      },
     });
   }, []);
 

@@ -54,6 +54,7 @@ export interface NexconnCallbacks {
   onCallConnected?: (session: NCCallSession) => void;
   onCallEnded?: (callId: string, reason: number) => void;
   onRemoteUserState?: (userId: string, state: number) => void;
+  onScreenShareEnded?: () => void;
 }
 
 class NexconnService {
@@ -66,6 +67,7 @@ class NexconnService {
   private liveMessageCache = new Map<string, Message<any>>();
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
+  private warmVideoTrack: MediaStreamTrack | null = null;
   private peers: Map<string, RTCPeerConnection> = new Map();
   private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
   private remoteStreams: Map<string, MediaStream> = new Map();
@@ -135,6 +137,36 @@ class NexconnService {
 
   getLocalStream(): MediaStream | null {
     return this.screenStream || this.localStream;
+  }
+
+  getWarmVideoTrack(): MediaStreamTrack | null {
+    if (this.warmVideoTrack && this.warmVideoTrack.readyState === 'live') {
+      return this.warmVideoTrack;
+    }
+    if (typeof document === 'undefined') return null;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#0a0d14';
+        ctx.fillRect(0, 0, 16, 16);
+      }
+      const captureStream = (canvas as any).captureStream || (canvas as any).webkitCaptureStream;
+      if (typeof captureStream === 'function') {
+        const stream = captureStream.call(canvas, 1);
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          track.enabled = true;
+          this.warmVideoTrack = track;
+          return track;
+        }
+      }
+    } catch (e) {
+      console.warn('[WebRTC] Warm video track init:', e);
+    }
+    return null;
   }
 
   private log(sdk: 'chat' | 'call' | 'system', action: string, detail: string, level: 'info' | 'ok' | 'warn' = 'info') {
@@ -796,6 +828,8 @@ class NexconnService {
     const broadcastStream = this.getBroadcastStream();
     const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live');
     const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live');
+    const warmVideo = this.getWarmVideoTrack();
+    const videoToSend = liveVideo || warmVideo;
 
     if (liveAudio) {
       pc.addTrack(liveAudio, broadcastStream);
@@ -803,8 +837,8 @@ class NexconnService {
       pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
 
-    if (liveVideo) {
-      pc.addTrack(liveVideo, broadcastStream);
+    if (videoToSend) {
+      pc.addTrack(videoToSend, broadcastStream);
     } else {
       pc.addTransceiver('video', { direction: 'sendrecv' });
     }
@@ -812,7 +846,7 @@ class NexconnService {
     pc.ontrack = (event) => {
       let remoteStream = this.remoteStreams.get(remoteUserId);
       if (!remoteStream) {
-        remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream();
+        remoteStream = new MediaStream();
         this.remoteStreams.set(remoteUserId, remoteStream);
       }
 
@@ -864,6 +898,8 @@ class NexconnService {
     const broadcastStream = this.getBroadcastStream();
     const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live') || null;
     const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live') || null;
+    const warmVideo = this.getWarmVideoTrack();
+    const targetVideo = liveVideo || warmVideo;
 
     for (const [peerId, pc] of this.peers.entries()) {
       if (pc.signalingState === 'closed') continue;
@@ -896,22 +932,24 @@ class NexconnService {
         .find((t) => t.receiver.track.kind === 'video' || t.sender.track?.kind === 'video');
 
       if (videoTransceiver) {
-        if (liveVideo) {
+        if (targetVideo) {
           if (videoTransceiver.direction !== 'sendrecv') {
             videoTransceiver.direction = 'sendrecv';
             needsRenegotiation = true;
           }
-          if (videoTransceiver.sender.track !== liveVideo) {
-            await videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
+          if (videoTransceiver.sender.track !== targetVideo) {
+            await videoTransceiver.sender.replaceTrack(targetVideo).catch(() => {});
+            needsRenegotiation = true;
           }
         } else {
           if (videoTransceiver.sender.track !== null) {
             await videoTransceiver.sender.replaceTrack(null).catch(() => {});
+            needsRenegotiation = true;
           }
         }
-      } else if (liveVideo) {
+      } else if (targetVideo) {
         try {
-          pc.addTrack(liveVideo, broadcastStream);
+          pc.addTrack(targetVideo, broadcastStream);
           needsRenegotiation = true;
         } catch {}
       }
@@ -994,10 +1032,10 @@ class NexconnService {
 
       // Only deduplicate identical offers/answers to prevent duplicate SDP rollbacks
       if (signal.type === 'offer' || signal.type === 'answer') {
-        const sigKey = `${fromUserId}:${signal.type}:${sdpStr.slice(0, 160)}`;
+        const sigKey = `${fromUserId}:${signal.type}:${sdpStr}`;
         if (this.seenSignals.has(sigKey)) return;
         this.seenSignals.add(sigKey);
-        if (this.seenSignals.size > 100) {
+        if (this.seenSignals.size > 200) {
           const first = this.seenSignals.values().next().value;
           if (first) this.seenSignals.delete(first);
         }
@@ -1043,6 +1081,9 @@ class NexconnService {
           .sendWebRtcSignal(fromUserId, { type: 'answer', sdp: answer }, callId || this.currentCallId)
           .catch(() => {});
         this.log('call', 'WebRTC.answerSent', `to=${fromUserId}`, 'ok');
+
+        const vel = this.remoteVideoElements.get(fromUserId);
+        if (vel && vel.paused) vel.play().catch(() => {});
       } else if (signal.type === 'answer') {
         if (pc.signalingState === 'have-local-offer') {
           const descInit: RTCSessionDescriptionInit = (typeof signal.sdp === 'object' && signal.sdp !== null)
@@ -1052,6 +1093,9 @@ class NexconnService {
           await drainCandidates();
           this.log('call', 'WebRTC.connected', `from=${fromUserId}`, 'ok');
           await this.syncTracksToPeers(false);
+
+          const vel = this.remoteVideoElements.get(fromUserId);
+          if (vel && vel.paused) vel.play().catch(() => {});
         }
       } else if (signal.type === 'candidate' && signal.candidate) {
         const candInit = (typeof signal.candidate === 'object' && signal.candidate !== null)
@@ -1180,6 +1224,7 @@ class NexconnService {
         if (vt) {
           vt.onended = () => {
             this.setScreenStream(null);
+            this.callbacks.onScreenShareEnded?.();
           };
         }
         await this.syncTracksToPeers(true);
@@ -1294,6 +1339,8 @@ class NexconnService {
   }
 
   stopMediaTracks() {
+    this.warmVideoTrack?.stop();
+    this.warmVideoTrack = null;
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
     this.screenStream?.getTracks().forEach((t) => t.stop());
