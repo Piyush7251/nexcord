@@ -596,9 +596,9 @@ class NexconnService {
     const curTrack = (videoElement.srcObject as MediaStream)?.getVideoTracks()[0] || null;
     if (curTrack !== videoTrack) {
       videoElement.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
-      if (videoTrack) {
-        videoElement.play().catch(() => {});
-      }
+    }
+    if (videoTrack && videoElement.paused) {
+      videoElement.play().catch(() => {});
     }
   }
 
@@ -613,9 +613,9 @@ class NexconnService {
     const curTrack = (videoElement.srcObject as MediaStream)?.getVideoTracks()[0] || null;
     if (curTrack !== videoTrack) {
       videoElement.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
-      if (videoTrack) {
-        videoElement.play().catch(() => {});
-      }
+    }
+    if (videoTrack && videoElement.paused) {
+      videoElement.play().catch(() => {});
     }
 
     if (this.mode === 'connected' && this.callEngine) {
@@ -756,6 +756,18 @@ class NexconnService {
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      this.log(
+        'call',
+        'WebRTC.iceConnectionState',
+        `peer=${remoteUserId} iceState=${pc.iceConnectionState}`,
+        pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed' ? 'ok' : 'info'
+      );
+      if (pc.iceConnectionState === 'failed') {
+        pc.restartIce?.();
+      }
+    };
+
     const broadcastStream = this.getBroadcastStream();
     const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live');
     const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live');
@@ -792,14 +804,20 @@ class NexconnService {
       }
 
       if (event.track.kind === 'video') {
-        const el = this.remoteVideoElements.get(remoteUserId);
-        if (el) {
-          const curTrack = (el.srcObject as MediaStream)?.getVideoTracks()[0] || null;
-          if (curTrack !== event.track) {
-            el.srcObject = new MediaStream([event.track]);
-            el.play().catch(() => {});
+        const updateVideo = () => {
+          const el = this.remoteVideoElements.get(remoteUserId);
+          if (el) {
+            const curTrack = (el.srcObject as MediaStream)?.getVideoTracks()[0] || null;
+            if (curTrack !== event.track) {
+              el.srcObject = new MediaStream([event.track]);
+            }
+            if (el.paused) {
+              el.play().catch(() => {});
+            }
           }
-        }
+        };
+        event.track.onunmute = updateVideo;
+        updateVideo();
       }
     };
 
@@ -857,13 +875,16 @@ class NexconnService {
         if (liveVideo) {
           if (videoTransceiver.direction !== 'sendrecv') {
             videoTransceiver.direction = 'sendrecv';
+            needsRenegotiation = true;
           }
           if (videoTransceiver.sender.track !== liveVideo) {
             await videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
+            needsRenegotiation = true;
           }
         } else {
           if (videoTransceiver.sender.track !== null) {
             await videoTransceiver.sender.replaceTrack(null).catch(() => {});
+            needsRenegotiation = true;
           }
         }
       } else if (liveVideo) {
@@ -969,13 +990,13 @@ class NexconnService {
 
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         await drainCandidates();
+        await this.syncTracksToPeers();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await api
           .sendWebRtcSignal(fromUserId, { type: 'answer', sdp: answer }, callId || this.currentCallId)
           .catch(() => {});
         this.log('call', 'WebRTC.answerSent', `to=${fromUserId}`, 'ok');
-        await this.syncTracksToPeers();
       } else if (signal.type === 'answer') {
         if (pc.signalingState === 'have-local-offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
@@ -1058,12 +1079,19 @@ class NexconnService {
       if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
         try {
           if (isMobile) {
-            stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            stream = await navigator.mediaDevices.getDisplayMedia({
+              video: { width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } },
+            });
           } else {
             try {
-              stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+              stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } },
+                audio: true,
+              });
             } catch {
-              stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+              stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } },
+              });
             }
           }
         } catch (displayErr) {

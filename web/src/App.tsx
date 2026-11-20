@@ -182,10 +182,27 @@ export function App() {
   const lastTypingSentRef = useRef(0);
   const activeTargetKeyRef = useRef('');
   const myVoiceRef = useRef<{ serverId: string; channelId: string } | null>(null);
+  const meRef = useRef<User | null>(null);
 
   useEffect(() => {
     myVoiceRef.current = myVoice;
   }, [myVoice]);
+
+  useEffect(() => {
+    meRef.current = me;
+    if (me?.id) {
+      nexconn.setCurrentUser(me.id);
+    }
+  }, [me]);
+
+  const maybeConnectToPeer = useCallback((peerId: string, callId: string) => {
+    const myId = meRef.current?.id;
+    if (!myId || !peerId || myId === peerId) return;
+    // Deterministic single-offerer: only user with smaller ID initiates WebRTC offer to eliminate glare collisions
+    if (myId < peerId) {
+      nexconn.connectToPeer(peerId, callId).catch(() => {});
+    }
+  }, []);
 
   const activeServer = useMemo(
     () => servers.find((s) => s.id === activeServerId) || null,
@@ -251,7 +268,7 @@ export function App() {
         });
         peerIds.forEach((pid) => {
           if (!nexconn.hasPeer(pid)) {
-            nexconn.connectToPeer(pid, nexconn.getCurrentCallId()).catch(() => {});
+            maybeConnectToPeer(pid, nexconn.getCurrentCallId());
           }
         });
       }
@@ -402,7 +419,7 @@ export function App() {
             const peers = Array.from(new Set([...prev.peerIds, userId]));
             return { ...prev, peerIds: peers };
           });
-          nexconn.connectToPeer(userId, callId).catch(() => {});
+          maybeConnectToPeer(userId, callId);
         }
       } catch {}
     });
@@ -754,7 +771,7 @@ export function App() {
     }
     nexconn.setCurrentCallId(callId);
     peers.forEach((peerId) => {
-      nexconn.connectToPeer(peerId, callId).catch(() => {});
+      maybeConnectToPeer(peerId, callId);
     });
     setMyVoice({ serverId: srv.id, channelId: ch.id });
     setCallState({

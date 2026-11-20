@@ -12,6 +12,7 @@ import {
   VideoOff,
   Volume2,
   VolumeX,
+  Maximize2,
 } from 'lucide-react';
 import type { CallSessionState, Channel, User, VoiceParticipant } from '../types';
 import { nexconn } from '../services/nexconn';
@@ -94,6 +95,9 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
             {channel ? `Voice Connected — ${channel.name}` : `Call — ${callState.targetLabel || 'Direct Call'}`}
           </span>
           <span className="nc-sdk-chip desktop-only">@nexconn/call</span>
+          <span style={{ fontSize: 11, color: '#57F287', background: 'rgba(87,242,135,0.12)', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
+            🟢 P2P Active
+          </span>
         </div>
         {onInviteUser && inviteCandidates.length > 0 && (
           <div className="nc-voice-invite-wrap">
@@ -177,6 +181,35 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
                   {u?.displayName || uid} {isMe ? '(You)' : ''}
                 </span>
                 <div className="nc-voice-badges">
+                  {hasVideo && (
+                    <button
+                      type="button"
+                      style={{
+                        background: 'rgba(0, 0, 0, 0.55)',
+                        border: 'none',
+                        color: '#fff',
+                        borderRadius: 4,
+                        padding: '2px 4px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const el = isMe ? localVideoRef.current : remoteVideoRefs.current[uid];
+                        if (el) {
+                          if (document.fullscreenElement) {
+                            document.exitFullscreen().catch(() => {});
+                          } else if (el.requestFullscreen) {
+                            el.requestFullscreen().catch(() => {});
+                          }
+                        }
+                      }}
+                      title="Fullscreen / Popout"
+                    >
+                      <Maximize2 size={13} />
+                    </button>
+                  )}
                   {isStreaming && <span className="nc-live-mini">LIVE</span>}
                   {deafened && <VolumeX size={14} className="danger-ico" />}
                   {muted ? <MicOff size={14} className="danger-ico" /> : <Mic size={14} className="ok-ico" />}
