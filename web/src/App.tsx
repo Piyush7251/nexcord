@@ -198,11 +198,28 @@ export function App() {
   const maybeConnectToPeer = useCallback((peerId: string, callId: string) => {
     const myId = meRef.current?.id;
     if (!myId || !peerId || myId === peerId) return;
-    // Deterministic single-offerer: only user with smaller ID initiates WebRTC offer to eliminate glare collisions
-    if (myId < peerId) {
-      nexconn.connectToPeer(peerId, callId).catch(() => {});
-    }
+    nexconn.connectToPeer(peerId, callId).catch(() => {});
   }, []);
+
+  // WebRTC Signal Polling Fallback (ensures signals are never lost even if SSE buffers behind proxy/Cloudflare)
+  useEffect(() => {
+    if (!me) return;
+    const isCallActive = callState.status === 'connected' || !!myVoice;
+    if (!isCallActive) return;
+
+    const timer = setInterval(async () => {
+      try {
+        const res = await api.getWebRtcSignals();
+        if (res?.signals && res.signals.length > 0) {
+          for (const s of res.signals) {
+            nexconn.handleWebRtcSignal(s.from, s.signal, s.callId);
+          }
+        }
+      } catch {}
+    }, 1200);
+
+    return () => clearInterval(timer);
+  }, [me, callState.status, myVoice]);
 
   const activeServer = useMemo(
     () => servers.find((s) => s.id === activeServerId) || null,

@@ -1046,17 +1046,37 @@ app.post('/api/voice/state', auth, (req, res) => {
 app.post('/api/voice/leave', auth, (req, res) => { leaveVoice(req.user.id); res.json({ ok: true }); });
 
 // ---------------------------------------------------------------- WebRTC signaling for real Voice & Video calls
+const pendingWebRtcSignals = new Map(); // toUserId -> [{ from, fromUser, signal, callId, timestamp }]
+
 app.post('/api/webrtc/signal', auth, wrap(async (req, res) => {
   const { to, signal, callId } = req.body || {};
   if (!to || !signal) throw new HttpError(400, 'to and signal payload required');
-  notify([to], 'webrtc-signal', {
+  const payload = {
     from: req.user.id,
     fromUser: publicUser(req.user),
     signal,
     callId: callId || '',
-  });
+    timestamp: Date.now(),
+  };
+
+  // 1. Deliver immediately over SSE
+  notify([to], 'webrtc-signal', payload);
+
+  // 2. Queue in mailbox for instant HTTP polling retrieval / recovery
+  if (!pendingWebRtcSignals.has(to)) pendingWebRtcSignals.set(to, []);
+  const q = pendingWebRtcSignals.get(to);
+  q.push(payload);
+  if (q.length > 60) q.shift();
+
   res.json({ ok: true });
 }));
+
+app.get('/api/webrtc/signals', auth, (req, res) => {
+  const uid = req.user.id;
+  const list = pendingWebRtcSignals.get(uid) || [];
+  pendingWebRtcSignals.delete(uid);
+  res.json({ signals: list });
+});
 
 // ---------------------------------------------------------------- File uploads
 app.post('/api/upload', auth, wrap(async (req, res) => {
@@ -1202,6 +1222,13 @@ app.get('/api/events', auth, (req, res) => {
   const wasOnline = (streams.get(uid)?.size || 0) > 0;
   if (!streams.has(uid)) streams.set(uid, new Set());
   streams.get(uid).add(res);
+  const queued = pendingWebRtcSignals.get(uid) || [];
+  if (queued.length > 0) {
+    pendingWebRtcSignals.delete(uid);
+    queued.forEach((item) => {
+      res.write(`event: webrtc-signal\ndata: ${JSON.stringify(item)}\n\n`);
+    });
+  }
   clearTimeout(offlineTimers.get(uid));
   if (!wasOnline) notify(relatedUserIds(uid), 'presence', { userId: uid });
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);

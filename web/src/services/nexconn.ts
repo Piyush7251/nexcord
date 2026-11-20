@@ -654,6 +654,16 @@ class NexconnService {
       const audioTrack = stream.getAudioTracks().find((t) => t.readyState === 'live') || stream.getAudioTracks()[0];
       if (!audioTrack) return;
 
+      if (this.audioContext && this.audioContext.state !== 'closed') {
+        if (this.audioContext.state === 'suspended') {
+          this.audioContext.resume().catch(() => {});
+        }
+        try {
+          const src = this.audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
+          src.connect(this.audioContext.destination);
+        } catch {}
+      }
+
       let audio = this.remoteAudioElements.get(userId);
       if (!audio) {
         audio = new Audio();
@@ -701,6 +711,9 @@ class NexconnService {
       this.screenStream.getVideoTracks().forEach((t) => {
         if (t.readyState === 'live') stream.addTrack(t);
       });
+      this.screenStream.getAudioTracks().forEach((t) => {
+        if (t.readyState === 'live') stream.addTrack(t);
+      });
     }
     if (this.localStream) {
       this.localStream.getTracks().forEach((t) => {
@@ -720,21 +733,7 @@ class NexconnService {
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun.cloudflare.com:3478' },
       { urls: 'stun:global.stun.twilio.com:3478' },
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
+      { urls: 'stun:stun.nextcloud.com:443' },
     ];
   }
 
