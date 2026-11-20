@@ -78,6 +78,7 @@ export interface PinnedMessageSnapshot {
   senderId: string;
   text: string;
   createdAt: number;
+  attachments?: MessageAttachment[];
   pinnedBy?: string;
   pinnedAt?: number;
 }
@@ -153,6 +154,7 @@ export interface SyncPayload {
   users: Record<string, User>;
   myVoice: { serverId: string; channelId: string } | null;
   squadState: Record<string, SquadLobbyState>;
+  dmPins?: Record<string, PinnedMessageSnapshot[]>;
 }
 
 export interface NexconnConfig {

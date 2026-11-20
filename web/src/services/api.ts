@@ -135,10 +135,14 @@ export const api = {
   kickMember: (serverId: string, userId: string) =>
     req(`/api/servers/${serverId}/members/${userId}/kick`, { method: 'POST' }),
 
-  pinMessage: (serverId: string, channelId: string, message: { id: string; senderId: string; text: string; createdAt: number }) =>
+  pinMessage: (serverId: string, channelId: string, message: { id: string; senderId: string; text: string; createdAt: number; attachments?: any[] }) =>
     req(`/api/servers/${serverId}/pins`, { method: 'POST', body: JSON.stringify({ channelId, message }) }),
   unpinMessage: (serverId: string, channelId: string, messageId: string) =>
     req(`/api/servers/${serverId}/pins/${channelId}/${messageId}`, { method: 'DELETE' }),
+  pinDmMessage: (targetKey: string, message: { id: string; senderId: string; text: string; createdAt: number; attachments?: any[] }) =>
+    req(`/api/pins/dm/${encodeURIComponent(targetKey)}`, { method: 'POST', body: JSON.stringify({ message }) }),
+  unpinDmMessage: (targetKey: string, messageId: string) =>
+    req(`/api/pins/dm/${encodeURIComponent(targetKey)}/${encodeURIComponent(messageId)}`, { method: 'DELETE' }),
 
   updateSquadState: (serverId: string, channelId: string, patch: { game?: string; map?: string; ready?: boolean }) =>
     req<{ state: SquadLobbyState }>(`/api/squad/${serverId}/${channelId}`, { method: 'POST', body: JSON.stringify(patch) }),

@@ -33,6 +33,172 @@ interface VoiceCallStageProps {
   onInviteUser?: (userId: string) => void;
 }
 
+interface VoiceTileProps {
+  uid: string;
+  isMe: boolean;
+  u?: User;
+  vp?: VoiceParticipant;
+  callState: CallSessionState;
+}
+
+const VoiceTile: React.FC<VoiceTileProps> = ({
+  uid,
+  isMe,
+  u,
+  vp,
+  callState,
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [hasLiveFrames, setHasLiveFrames] = useState(false);
+
+  const muted = isMe ? callState.micMuted : !!vp?.muted;
+  const deafened = isMe ? callState.deafened : !!vp?.deafened;
+  const isStreaming = isMe ? callState.screenSharing : !!vp?.streaming;
+  const isVideoExpected = isMe
+    ? !!(callState.cameraEnabled || callState.screenSharing)
+    : !!(vp?.video || vp?.streaming);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+
+    if (isMe) {
+      if (isVideoExpected) {
+        nexconn.bindLocalVideo(el);
+        setHasLiveFrames(true);
+      } else {
+        el.srcObject = null;
+        setHasLiveFrames(false);
+      }
+    } else {
+      if (isVideoExpected) {
+        nexconn.bindRemoteVideo(uid, el);
+
+        const checkPlaying = () => {
+          if (el.videoWidth > 0 && !el.paused) {
+            setHasLiveFrames(true);
+          }
+        };
+
+        checkPlaying();
+        el.addEventListener('loadeddata', checkPlaying);
+        el.addEventListener('playing', checkPlaying);
+        el.addEventListener('resize', checkPlaying);
+        const poll = setInterval(checkPlaying, 500);
+
+        return () => {
+          clearInterval(poll);
+          el.removeEventListener('loadeddata', checkPlaying);
+          el.removeEventListener('playing', checkPlaying);
+          el.removeEventListener('resize', checkPlaying);
+        };
+      } else {
+        el.srcObject = null;
+        setHasLiveFrames(false);
+        nexconn.bindRemoteVideo(uid, null);
+      }
+    }
+  }, [isMe, uid, isVideoExpected, callState.cameraEnabled, callState.screenSharing]);
+
+  const showVideo = isMe ? isVideoExpected : (isVideoExpected && hasLiveFrames);
+
+  return (
+    <div
+      className={`nc-voice-tile ${!muted ? 'active' : ''} ${isStreaming ? 'streaming-tile' : ''}`}
+      onClick={() => {
+        nexconn.unlockAudio();
+        const el = videoRef.current;
+        if (el && el.paused) el.play().catch(() => {});
+      }}
+    >
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={true}
+        className="nc-voice-video"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: isStreaming ? 'contain' : 'cover',
+          backgroundColor: '#0a0d14',
+          zIndex: showVideo ? 2 : 0,
+          opacity: showVideo ? 1 : 0,
+          pointerEvents: showVideo ? 'auto' : 'none',
+          transition: 'opacity 0.25s ease',
+        }}
+      />
+      <div
+        className="nc-voice-avatar-center"
+        style={{
+          zIndex: 1,
+          display: showVideo ? 'none' : 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <Avatar user={u} size={76} speaking={!muted} />
+        {!isMe && isVideoExpected && !hasLiveFrames && (
+          <span
+            style={{
+              fontSize: 11,
+              color: '#FEE75C',
+              background: 'rgba(0,0,0,0.65)',
+              padding: '2px 8px',
+              borderRadius: 12,
+              fontWeight: 500,
+            }}
+          >
+            Connecting video...
+          </span>
+        )}
+      </div>
+      <div className="nc-voice-tile-footer" style={{ zIndex: 5 }}>
+        <span className="nc-voice-name">
+          {u?.displayName || uid} {isMe ? '(You)' : ''}
+        </span>
+        <div className="nc-voice-badges">
+          {showVideo && (
+            <button
+              type="button"
+              style={{
+                background: 'rgba(0, 0, 0, 0.55)',
+                border: 'none',
+                color: '#fff',
+                borderRadius: 4,
+                padding: '2px 4px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                const el = videoRef.current;
+                if (el) {
+                  if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(() => {});
+                  } else if (el.requestFullscreen) {
+                    el.requestFullscreen().catch(() => {});
+                  }
+                }
+              }}
+              title="Fullscreen / Popout"
+            >
+              <Maximize2 size={13} />
+            </button>
+          )}
+          {isStreaming && <span className="nc-live-mini">LIVE</span>}
+          {deafened && <VolumeX size={14} className="danger-ico" />}
+          {muted ? <MicOff size={14} className="danger-ico" /> : <Mic size={14} className="ok-ico" />}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   channel,
   voiceParticipants = [],
@@ -46,17 +212,8 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   onHangup,
   onInviteUser,
 }) => {
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const [showInvite, setShowInvite] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
-  const [streamTick, setStreamTick] = useState(0);
-
-  // Keep mobile view reactive to stream state changes
-  useEffect(() => {
-    const timer = setInterval(() => setStreamTick((t) => (t + 1) % 1000), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   const participantIds = useMemo(
     () =>
@@ -69,29 +226,6 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
       ),
     [me.id, voiceParticipants, callState.peerIds],
   );
-
-  useEffect(() => {
-    if (localVideoRef.current) {
-      if (callState.cameraEnabled || callState.screenSharing) {
-        nexconn.bindLocalVideo(localVideoRef.current);
-        if (localVideoRef.current.paused) localVideoRef.current.play().catch(() => {});
-      } else {
-        localVideoRef.current.srcObject = null;
-      }
-    }
-  }, [callState.cameraEnabled, callState.screenSharing, streamTick]);
-
-  useEffect(() => {
-    participantIds.forEach((pid) => {
-      if (pid !== me.id) {
-        const el = remoteVideoRefs.current[pid];
-        if (el) {
-          nexconn.bindRemoteVideo(pid, el);
-          if (el.paused) el.play().catch(() => {});
-        }
-      }
-    });
-  }, [participantIds, voiceParticipants, streamTick]);
 
   const inviteCandidates = Object.values(users).filter(
     (u) => u.id !== me.id && !participantIds.includes(u.id),
@@ -167,107 +301,15 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
           const isMe = uid === me.id;
           const u = isMe ? me : users[uid];
           const vp = voiceParticipants.find((v) => v.userId === uid);
-          const muted = isMe ? callState.micMuted : !!vp?.muted;
-          const deafened = isMe ? callState.deafened : !!vp?.deafened;
-          const isStreaming = isMe ? callState.screenSharing : !!vp?.streaming;
-          const isRemoteActive = vp ? (!!vp.video || !!vp.streaming) : (callState.mediaType === 'video');
-          const hasVideo = isMe
-            ? !!(callState.cameraEnabled || callState.screenSharing)
-            : isRemoteActive;
-
           return (
-            <div
+            <VoiceTile
               key={uid}
-              className={`nc-voice-tile ${!muted ? 'active' : ''} ${isStreaming ? 'streaming-tile' : ''}`}
-              onClick={() => {
-                nexconn.unlockAudio();
-                const el = isMe ? localVideoRef.current : remoteVideoRefs.current[uid];
-                if (el && el.paused) el.play().catch(() => {});
-              }}
-            >
-              <video
-                ref={(el) => {
-                  if (isMe) {
-                    (localVideoRef as any).current = el;
-                    if (el) nexconn.bindLocalVideo(el);
-                  } else {
-                    remoteVideoRefs.current[uid] = el;
-                    if (el) nexconn.bindRemoteVideo(uid, el);
-                  }
-                  if (el) {
-                    el.muted = true;
-                    el.defaultMuted = true;
-                    el.setAttribute('playsinline', 'true');
-                    el.setAttribute('webkit-playsinline', 'true');
-                    el.setAttribute('x5-playsinline', 'true');
-                  }
-                }}
-                autoPlay
-                playsInline
-                muted={true}
-                className="nc-voice-video"
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  objectFit: isStreaming ? 'contain' : 'cover',
-                  backgroundColor: '#000',
-                  zIndex: hasVideo ? 2 : 0,
-                  opacity: hasVideo ? 1 : 0,
-                  pointerEvents: hasVideo ? 'auto' : 'none',
-                  transition: 'opacity 0.2s ease',
-                }}
-              />
-              <div
-                className="nc-voice-avatar-center"
-                style={{
-                  zIndex: 1,
-                  display: hasVideo ? 'none' : 'flex',
-                }}
-              >
-                <Avatar user={u} size={76} speaking={!muted} />
-              </div>
-              <div className="nc-voice-tile-footer" style={{ zIndex: 5 }}>
-                <span className="nc-voice-name">
-                  {u?.displayName || uid} {isMe ? '(You)' : ''}
-                </span>
-                <div className="nc-voice-badges">
-                  {hasVideo && (
-                    <button
-                      type="button"
-                      style={{
-                        background: 'rgba(0, 0, 0, 0.55)',
-                        border: 'none',
-                        color: '#fff',
-                        borderRadius: 4,
-                        padding: '2px 4px',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const el = isMe ? localVideoRef.current : remoteVideoRefs.current[uid];
-                        if (el) {
-                          if (document.fullscreenElement) {
-                            document.exitFullscreen().catch(() => {});
-                          } else if (el.requestFullscreen) {
-                            el.requestFullscreen().catch(() => {});
-                          }
-                        }
-                      }}
-                      title="Fullscreen / Popout"
-                    >
-                      <Maximize2 size={13} />
-                    </button>
-                  )}
-                  {isStreaming && <span className="nc-live-mini">LIVE</span>}
-                  {deafened && <VolumeX size={14} className="danger-ico" />}
-                  {muted ? <MicOff size={14} className="danger-ico" /> : <Mic size={14} className="ok-ico" />}
-                </div>
-              </div>
-            </div>
+              uid={uid}
+              isMe={isMe}
+              u={u}
+              vp={vp}
+              callState={callState}
+            />
           );
         })}
       </div>

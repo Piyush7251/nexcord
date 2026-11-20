@@ -523,6 +523,7 @@ app.get('/api/sync', auth, (req, res) => {
     users,
     myVoice: userVoice[uid] || null,
     squadState: d.squadState || {},
+    dmPins: d.dmPins || {},
   });
 });
 
@@ -825,6 +826,34 @@ app.delete('/api/servers/:id/pins/:channelId/:messageId', auth, wrap(async (req,
   const s = getServer(req);
   if (s.pins?.[req.params.channelId]) s.pins[req.params.channelId] = s.pins[req.params.channelId].filter((p) => p.id !== req.params.messageId);
   save(); notifyServer(s);
+  res.json({ ok: true });
+}));
+
+// dm pins
+app.post('/api/pins/dm/:targetKey', auth, wrap(async (req, res) => {
+  const { targetKey } = req.params;
+  const { message } = req.body || {};
+  if (!message?.id) throw new HttpError(400, 'message required');
+  const d = db();
+  d.dmPins ||= {};
+  const list = (d.dmPins[targetKey] ||= []);
+  if (!list.some((p) => p.id === message.id)) {
+    list.unshift({ ...message, pinnedBy: req.user.id, pinnedAt: Date.now() });
+  }
+  d.dmPins[targetKey] = list.slice(0, 50);
+  save();
+  notify(recipientsForTarget(targetKey, req.user.id), 'sync');
+  res.json({ ok: true, pins: d.dmPins[targetKey] });
+}));
+
+app.delete('/api/pins/dm/:targetKey/:messageId', auth, wrap(async (req, res) => {
+  const { targetKey, messageId } = req.params;
+  const d = db();
+  if (d.dmPins?.[targetKey]) {
+    d.dmPins[targetKey] = d.dmPins[targetKey].filter((p) => p.id !== messageId);
+  }
+  save();
+  notify(recipientsForTarget(targetKey, req.user.id), 'sync');
   res.json({ ok: true });
 }));
 

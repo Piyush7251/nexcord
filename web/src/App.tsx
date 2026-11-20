@@ -24,6 +24,7 @@ import {
   Phone,
   PhoneOff,
   Pin,
+  PinOff,
   Plus,
   Radio,
   Search,
@@ -45,6 +46,7 @@ import type {
   ChatMessage,
   LiveHypeBurst,
   NexconnConfig,
+  PinnedMessageSnapshot,
   QuickChatPreset,
   ReplyReference,
   SdkLogEntry,
@@ -165,6 +167,7 @@ export function App() {
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
   const [showMemberList, setShowMemberList] = useState(true);
   const [showPinsDrawer, setShowPinsDrawer] = useState(false);
+  const [dmPins, setDmPins] = useState<Record<string, PinnedMessageSnapshot[]>>({});
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<{ url: string; name: string } | null>(null);
 
@@ -272,12 +275,12 @@ export function App() {
       callState.peerIds.forEach((pid) => {
         if (myId > pid) {
           const state = nexconn.getPeerConnectionState(pid);
-          if (state === 'failed' || state === 'disconnected' || state === 'new') {
+          if (state === 'failed' || state === 'disconnected') {
             nexconn.connectToPeer(pid, callId).catch(() => {});
           }
         }
       });
-    }, 2500);
+    }, 4000);
 
     return () => clearInterval(timer);
   }, [me, myVoice, callState.status, callState.callId, callState.peerIds]);
@@ -330,6 +333,7 @@ export function App() {
     setIncomingReq(data.incoming);
     setOutgoingReq(data.outgoing);
     setDms(data.dms);
+    setDmPins(data.dmPins || {});
     setMyVoice(data.myVoice);
 
     if (data.myVoice) {
@@ -965,7 +969,41 @@ export function App() {
     .map(([, v]) => v.name);
 
   const dmUser = activeDmUserId ? users[activeDmUserId] : null;
-  const currentPins = activeServer && activeChannel ? activeServer.pins[activeChannel.id] || [] : [];
+  const currentPins: PinnedMessageSnapshot[] = useMemo(() => {
+    if (activeServer && activeChannel) {
+      return activeServer.pins[activeChannel.id] || [];
+    }
+    if (viewMode === 'home' && activeTargetKey) {
+      return dmPins[activeTargetKey] || [];
+    }
+    return [];
+  }, [activeServer, activeChannel, viewMode, activeTargetKey, dmPins]);
+
+  const togglePinMessage = async (m: ChatMessage) => {
+    const isPinned = currentPins.some((p) => p.id === m.id);
+    const snapshot: PinnedMessageSnapshot = {
+      id: m.id,
+      senderId: m.senderId,
+      text: m.text,
+      createdAt: m.createdAt,
+      attachments: m.attachments || [],
+    };
+    if (isPinned) {
+      if (activeServer && activeChannel) {
+        await api.unpinMessage(activeServer.id, activeChannel.id, m.id).catch(() => {});
+      } else if (activeTargetKey) {
+        await api.unpinDmMessage(activeTargetKey, m.id).catch(() => {});
+      }
+    } else {
+      if (activeServer && activeChannel) {
+        await api.pinMessage(activeServer.id, activeChannel.id, snapshot).catch(() => {});
+      } else if (activeTargetKey) {
+        await api.pinDmMessage(activeTargetKey, snapshot).catch(() => {});
+      }
+      setShowPinsDrawer(true);
+    }
+    await runSync();
+  };
 
   return (
     <div className="nc-shell">
@@ -1461,25 +1499,31 @@ export function App() {
               </>
             )}
 
+            {((viewMode === 'server' && activeChannel && activeChannel.type !== 'voice' && activeChannel.type !== 'live') ||
+              (viewMode === 'home' && dmUser)) && (
+              <button
+                type="button"
+                className={`nc-icon-btn ${showPinsDrawer ? 'active' : ''}`}
+                onClick={() => setShowPinsDrawer((v) => !v)}
+                title={showPinsDrawer ? 'Close Pinned Messages' : 'Pinned Messages'}
+                style={{ position: 'relative' }}
+              >
+                <Pin size={18} />
+                {currentPins.length > 0 && (
+                  <span className="nc-pin-badge-count">{currentPins.length}</span>
+                )}
+              </button>
+            )}
+
             {viewMode === 'server' && activeChannel && activeChannel.type !== 'voice' && activeChannel.type !== 'live' && (
-              <>
-                <button
-                  type="button"
-                  className={`nc-icon-btn ${showPinsDrawer ? 'active' : ''} desktop-only`}
-                  onClick={() => setShowPinsDrawer((v) => !v)}
-                  title="Pinned Messages"
-                >
-                  <Pin size={18} />
-                </button>
-                <button
-                  type="button"
-                  className={`nc-icon-btn ${showSearch ? 'active' : ''} desktop-only`}
-                  onClick={() => setShowSearch((v) => !v)}
-                  title="Search Channel Messages"
-                >
-                  <Search size={18} />
-                </button>
-              </>
+              <button
+                type="button"
+                className={`nc-icon-btn ${showSearch ? 'active' : ''} desktop-only`}
+                onClick={() => setShowSearch((v) => !v)}
+                title="Search Channel Messages"
+              >
+                <Search size={18} />
+              </button>
             )}
 
             {viewMode === 'server' && (
@@ -1857,7 +1901,8 @@ export function App() {
                     return (
                       <div
                         key={m.id}
-                        className={`nc-msg-row ${grouped ? 'grouped' : ''} ${m.type === 'quickchat' ? 'quickchat' : ''}`}
+                        id={`msg-${m.id}`}
+                        className={`nc-msg-row ${grouped ? 'grouped' : ''} ${m.type === 'quickchat' ? 'quickchat' : ''} ${currentPins.some((p) => p.id === m.id) ? 'pinned-msg-row' : ''}`}
                       >
                         {!grouped ? (
                           <Avatar
@@ -1892,6 +1937,9 @@ export function App() {
                               {sender?.isBot && <span className="nc-bot-tag">SQUAD</span>}
                               {m.type === 'quickchat' && (
                                 <span className="nc-qc-badge">{m.metadata?.badge || 'QUICK CHAT'}</span>
+                              )}
+                              {currentPins.some((p) => p.id === m.id) && (
+                                <span className="nc-msg-pinned-indicator">📌 Pinned</span>
                               )}
                               <span className="nc-msg-ts">{formatTime(m.createdAt)}</span>
                             </div>
@@ -2011,24 +2059,18 @@ export function App() {
                           >
                             <CornerUpLeft size={15} />
                           </button>
-                          {viewMode === 'server' && activeServer && activeChannel && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                api
-                                  .pinMessage(activeServer.id, activeChannel.id, {
-                                    id: m.id,
-                                    senderId: m.senderId,
-                                    text: m.text,
-                                    createdAt: m.createdAt,
-                                  })
-                                  .then(runSync)
-                              }
-                              title="Pin Message"
-                            >
+                          <button
+                            type="button"
+                            className={currentPins.some((p) => p.id === m.id) ? 'active pin-active' : ''}
+                            onClick={() => togglePinMessage(m)}
+                            title={currentPins.some((p) => p.id === m.id) ? 'Unpin Message' : 'Pin Message'}
+                          >
+                            {currentPins.some((p) => p.id === m.id) ? (
+                              <PinOff size={15} style={{ color: '#FEE75C' }} />
+                            ) : (
                               <Pin size={15} />
-                            </button>
-                          )}
+                            )}
+                          </button>
                           {m.senderId === me.id && (
                             <button
                               type="button"
@@ -2141,43 +2183,94 @@ export function App() {
           </div>
 
           {/* 4. RIGHT DRAWER: PINS OR MEMBER LIST */}
-          {viewMode === 'server' && activeServer && showPinsDrawer && (
-            <aside className="nc-right-drawer">
-              <div className="nc-drawer-head">
-                <span>PINNED MESSAGES ({currentPins.length})</span>
-                <button type="button" className="nc-icon-btn sm" onClick={() => setShowPinsDrawer(false)}>
-                  <X size={15} />
-                </button>
-              </div>
-              <div className="nc-drawer-scroll">
-                {currentPins.length === 0 ? (
-                  <div className="nc-empty-state">No pinned messages in this channel yet.</div>
-                ) : (
-                  currentPins.map((p) => {
-                    const u = users[p.senderId];
-                    return (
-                      <div key={p.id} className="nc-pin-card">
-                        <div className="nc-pin-head">
-                          <Avatar user={u} size={22} />
-                          <strong>{u?.displayName || p.senderId}</strong>
+          {showPinsDrawer && (
+            <>
+              <div className="nc-drawer-backdrop" onClick={() => setShowPinsDrawer(false)} />
+              <aside className="nc-right-drawer pins-drawer">
+                <div className="nc-drawer-head">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Pin size={15} style={{ color: '#FEE75C' }} />
+                    <strong>PINNED MESSAGES ({currentPins.length})</strong>
+                  </span>
+                  <button type="button" className="nc-icon-btn sm" onClick={() => setShowPinsDrawer(false)}>
+                    <X size={15} />
+                  </button>
+                </div>
+                <div className="nc-drawer-scroll">
+                  {currentPins.length === 0 ? (
+                    <div className="nc-empty-state">
+                      <Pin size={28} style={{ opacity: 0.35, marginBottom: 8 }} />
+                      <div>No pinned messages yet.</div>
+                      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
+                        Hover over any message and click the Pin icon to pin it here.
+                      </div>
+                    </div>
+                  ) : (
+                    currentPins.map((p) => {
+                      const u = users[p.senderId];
+                      return (
+                        <div key={p.id} className="nc-pin-card">
+                          <div className="nc-pin-head">
+                            <Avatar user={u} size={22} />
+                            <strong className="nc-pin-author">{u?.displayName || p.senderId}</strong>
+                            <span className="nc-pin-time">{formatTime(p.createdAt)}</span>
+                            <button
+                              type="button"
+                              className="nc-icon-btn sm"
+                              onClick={() => {
+                                if (activeServer && activeChannel) {
+                                  api.unpinMessage(activeServer.id, activeChannel.id, p.id).then(runSync);
+                                } else if (activeTargetKey) {
+                                  api.unpinDmMessage(activeTargetKey, p.id).then(runSync);
+                                }
+                              }}
+                              title="Unpin Message"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                          {p.text && <p className="nc-pin-text">{p.text}</p>}
+                          {p.attachments && p.attachments.length > 0 && (
+                            <div className="nc-pin-attachments">
+                              {p.attachments.map((att: any, ai: number) =>
+                                att.isImage ? (
+                                  <img
+                                    key={ai}
+                                    src={att.dataUrl}
+                                    alt={att.name}
+                                    className="nc-pin-thumb"
+                                    onClick={() => setFullscreenImage({ url: att.dataUrl, name: att.name || 'image.png' })}
+                                  />
+                                ) : (
+                                  <div key={ai} className="nc-pin-file-chip">
+                                    <Paperclip size={12} />
+                                    <span>{att.name}</span>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
                           <button
                             type="button"
-                            className="nc-icon-btn sm"
-                            onClick={() =>
-                              activeChannel &&
-                              api.unpinMessage(activeServer.id, activeChannel.id, p.id).then(runSync)
-                            }
+                            className="nc-btn xs secondary nc-pin-jump-btn"
+                            onClick={() => {
+                              const el = document.getElementById(`msg-${p.id}`);
+                              if (el) {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                el.classList.add('nc-msg-highlight');
+                                setTimeout(() => el.classList.remove('nc-msg-highlight'), 2000);
+                              }
+                            }}
                           >
-                            <X size={13} />
+                            Jump to Message
                           </button>
                         </div>
-                        <p>{p.text}</p>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </aside>
+                      );
+                    })
+                  )}
+                </div>
+              </aside>
+            </>
           )}
 
           {viewMode === 'server' && activeServer && showMemberList && !showPinsDrawer && activeChannel?.type !== 'live' && (
