@@ -113,12 +113,19 @@ function leaveVoice(uid) {
   if (!cur) return;
   delete userVoice[uid];
   const v = voice[cur.serverId]?.[cur.channelId];
+  let remaining = [];
   if (v) {
     delete v.members[uid];
-    if (Object.keys(v.members).length === 0) delete voice[cur.serverId][cur.channelId];
+    remaining = Object.keys(v.members);
+    if (remaining.length === 0) delete voice[cur.serverId][cur.channelId];
   }
   const s = db().servers[cur.serverId];
-  if (s) notifyServer(s);
+  if (s) {
+    notifyServer(s);
+    if (remaining.length > 0) {
+      notify(remaining, 'voice-leave', { userId: uid, serverId: cur.serverId, channelId: cur.channelId });
+    }
+  }
 }
 
 // ---------------------------------------------------------------- default community initialization (no dummy bots or fake messages)
@@ -998,6 +1005,14 @@ app.post('/api/voice/join', auth, wrap(async (req, res) => {
   v.members[req.user.id] = { muted: false, deafened: false, video: false, streaming: false, joinedAt: Date.now() };
   userVoice[req.user.id] = { serverId, channelId };
   notifyServer(s);
+  if (others.length > 0) {
+    notify(others, 'voice-join', {
+      userId: req.user.id,
+      serverId,
+      channelId,
+      callId: v.callId,
+    });
+  }
   res.json({ callId: v.callId, participants: others });
 }));
 

@@ -125,40 +125,49 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
           const vp = voiceParticipants.find((v) => v.userId === uid);
           const muted = isMe ? callState.micMuted : !!vp?.muted;
           const deafened = isMe ? callState.deafened : !!vp?.deafened;
-          const hasLocalVideo = isMe && (callState.cameraEnabled || callState.screenSharing);
+          const isStreaming = isMe ? callState.screenSharing : !!vp?.streaming;
+          const hasVideo = isMe
+            ? (callState.cameraEnabled || callState.screenSharing)
+            : (!!vp?.video || !!vp?.streaming);
 
           return (
             <div key={uid} className={`nc-voice-tile ${!muted ? 'active' : ''}`}>
-              {hasLocalVideo ? (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="nc-voice-video"
-                />
-              ) : (
-                <>
-                  <video
-                    ref={(el) => {
-                      remoteVideoRefs.current[uid] = el;
-                      if (el) nexconn.bindRemoteVideo(uid, el);
-                    }}
-                    autoPlay
-                    playsInline
-                    className="nc-voice-video"
-                  />
-                  <div className="nc-voice-avatar-center">
-                    <Avatar user={u} size={76} speaking={!muted} />
-                  </div>
-                </>
+              <video
+                ref={(el) => {
+                  if (isMe) {
+                    (localVideoRef as any).current = el;
+                    if (el && hasVideo) nexconn.bindLocalVideo(el);
+                  } else {
+                    remoteVideoRefs.current[uid] = el;
+                    if (el) nexconn.bindRemoteVideo(uid, el);
+                  }
+                }}
+                autoPlay
+                playsInline
+                muted={true}
+                className="nc-voice-video"
+                style={{
+                  display: hasVideo ? 'block' : 'none',
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: isStreaming ? 'contain' : 'cover',
+                  backgroundColor: '#000',
+                  zIndex: 1,
+                }}
+              />
+              {!hasVideo && (
+                <div className="nc-voice-avatar-center" style={{ zIndex: 1 }}>
+                  <Avatar user={u} size={76} speaking={!muted} />
+                </div>
               )}
-              <div className="nc-voice-tile-footer">
+              <div className="nc-voice-tile-footer" style={{ zIndex: 5 }}>
                 <span className="nc-voice-name">
                   {u?.displayName || uid} {isMe ? '(You)' : ''}
                 </span>
                 <div className="nc-voice-badges">
-                  {vp?.streaming && <span className="nc-live-mini">LIVE</span>}
+                  {isStreaming && <span className="nc-live-mini">LIVE</span>}
                   {deafened && <VolumeX size={14} className="danger-ico" />}
                   {muted ? <MicOff size={14} className="danger-ico" /> : <Mic size={14} className="ok-ico" />}
                 </div>

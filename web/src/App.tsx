@@ -181,6 +181,11 @@ export function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTypingSentRef = useRef(0);
   const activeTargetKeyRef = useRef('');
+  const myVoiceRef = useRef<{ serverId: string; channelId: string } | null>(null);
+
+  useEffect(() => {
+    myVoiceRef.current = myVoice;
+  }, [myVoice]);
 
   const activeServer = useMemo(
     () => servers.find((s) => s.id === activeServerId) || null,
@@ -223,6 +228,7 @@ export function App() {
   const runSync = useCallback(async () => {
     const data = await api.sync();
     setMe(data.me);
+    if (data.me) nexconn.setCurrentUser(data.me.id);
     setServers(data.servers);
     setUsers(data.users);
     setFriends(data.friends);
@@ -231,6 +237,25 @@ export function App() {
     setDms(data.dms);
     setSquadState(data.squadState || {});
     setMyVoice(data.myVoice);
+
+    if (data.myVoice) {
+      const srv = data.servers.find((s) => s.id === data.myVoice?.serverId);
+      if (srv) {
+        const vMembers = srv.voiceStates[data.myVoice.channelId] || [];
+        const peerIds = vMembers.map((v) => v.userId).filter((id) => id !== data.me?.id);
+        setCallState((prev) => {
+          if (prev.status === 'connected') {
+            return { ...prev, peerIds };
+          }
+          return prev;
+        });
+        peerIds.forEach((pid) => {
+          if (!nexconn.hasPeer(pid)) {
+            nexconn.connectToPeer(pid, nexconn.getCurrentCallId()).catch(() => {});
+          }
+        });
+      }
+    }
 
     setActiveServerId((prev) => {
       if (prev && data.servers.some((s) => s.id === prev)) return prev;
@@ -364,6 +389,32 @@ export function App() {
       } catch (err) {
         console.warn('webrtc-signal parse error', err);
       }
+    });
+    es.addEventListener('voice-join', (e: MessageEvent) => {
+      try {
+        const { userId, serverId, channelId, callId } = JSON.parse(e.data);
+        if (
+          myVoiceRef.current &&
+          myVoiceRef.current.serverId === serverId &&
+          myVoiceRef.current.channelId === channelId
+        ) {
+          setCallState((prev) => {
+            const peers = Array.from(new Set([...prev.peerIds, userId]));
+            return { ...prev, peerIds: peers };
+          });
+          nexconn.connectToPeer(userId, callId).catch(() => {});
+        }
+      } catch {}
+    });
+    es.addEventListener('voice-leave', (e: MessageEvent) => {
+      try {
+        const { userId } = JSON.parse(e.data);
+        nexconn.closePeer(userId);
+        setCallState((prev) => ({
+          ...prev,
+          peerIds: prev.peerIds.filter((id) => id !== userId),
+        }));
+      } catch {}
     });
     es.addEventListener('message', (e: MessageEvent) => {
       try {
@@ -701,6 +752,7 @@ export function App() {
     } else {
       await nexconn.joinCall(callId, false);
     }
+    nexconn.setCurrentCallId(callId);
     peers.forEach((peerId) => {
       nexconn.connectToPeer(peerId, callId).catch(() => {});
     });
@@ -730,6 +782,7 @@ export function App() {
       isGroup: false,
       video,
     });
+    nexconn.setCurrentCallId(callId);
     nexconn.connectToPeer(userId, callId).catch(() => {});
     setCallState({
       status: 'connected',

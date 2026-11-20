@@ -1930,7 +1930,7 @@
   background: #1b1d23;
   border: 2px solid transparent;
   border-radius: 12px;
-  min-height: 190px;
+  min-height: 220px;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -1941,10 +1941,22 @@
   border-color: rgba(87, 242, 135, 0.45);
 }
 
-.nc-voice-video {
+.nc-voice-avatar-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  z-index: 1;
+}
+
+.nc-voice-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #0b0e14;
+  z-index: 1;
 }
 
 .nc-voice-video.hidden-empty {

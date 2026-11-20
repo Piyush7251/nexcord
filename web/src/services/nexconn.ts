@@ -71,9 +71,27 @@ class NexconnService {
   private remoteStreams: Map<string, MediaStream> = new Map();
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
   private remoteAudioElements: Map<string, HTMLAudioElement> = new Map();
-  private audioContainer: HTMLDivElement | null = null;
   private audioContext: AudioContext | null = null;
   private isDeafened: boolean = false;
+  private currentCallId: string = '';
+  private currentUserId: string = '';
+
+  setCurrentUser(userId: string) {
+    this.currentUserId = userId;
+  }
+
+  setCurrentCallId(callId: string) {
+    this.currentCallId = callId;
+  }
+
+  getCurrentCallId(): string {
+    return this.currentCallId;
+  }
+
+  hasPeer(userId: string): boolean {
+    const pc = this.peers.get(userId);
+    return !!pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed';
+  }
 
   setCallbacks(cb: NexconnCallbacks) {
     this.callbacks = { ...this.callbacks, ...cb };
@@ -632,18 +650,13 @@ class NexconnService {
         (audio as any).playsInline = true;
         audio.setAttribute('playsinline', 'true');
         audio.setAttribute('webkit-playsinline', 'true');
-        audio.style.display = 'none';
-
-        if (!this.audioContainer) {
-          this.audioContainer = document.getElementById('nexcord-remote-audio-container') as HTMLDivElement;
-          if (!this.audioContainer) {
-            this.audioContainer = document.createElement('div');
-            this.audioContainer.id = 'nexcord-remote-audio-container';
-            this.audioContainer.style.display = 'none';
-            document.body.appendChild(this.audioContainer);
-          }
-        }
-        this.audioContainer.appendChild(audio);
+        audio.style.position = 'fixed';
+        audio.style.width = '1px';
+        audio.style.height = '1px';
+        audio.style.opacity = '0.001';
+        audio.style.pointerEvents = 'none';
+        audio.style.top = '-999px';
+        document.body.appendChild(audio);
         this.remoteAudioElements.set(userId, audio);
       }
 
@@ -713,59 +726,156 @@ class NexconnService {
     ];
   }
 
+  private createPeerConnection(remoteUserId: string, callId: string): RTCPeerConnection {
+    const pc = new RTCPeerConnection({
+      iceServers: this.getIceServers(),
+    });
+    this.peers.set(remoteUserId, pc);
+
+    pc.onconnectionstatechange = () => {
+      this.log(
+        'call',
+        'WebRTC.connectionState',
+        `peer=${remoteUserId} state=${pc.connectionState}`,
+        pc.connectionState === 'connected' ? 'ok' : 'info'
+      );
+      if (pc.connectionState === 'failed') {
+        pc.restartIce?.();
+      }
+    };
+
+    const broadcastStream = this.getBroadcastStream();
+    const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live');
+    const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live');
+
+    if (liveAudio) {
+      pc.addTrack(liveAudio, broadcastStream);
+    } else {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+    }
+
+    if (liveVideo) {
+      pc.addTrack(liveVideo, broadcastStream);
+    } else {
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+    }
+
+    pc.ontrack = (event) => {
+      let remoteStream = this.remoteStreams.get(remoteUserId);
+      if (!remoteStream) {
+        remoteStream = new MediaStream();
+        this.remoteStreams.set(remoteUserId, remoteStream);
+      }
+
+      const oldTrack = remoteStream.getTracks().find((t) => t.kind === event.track.kind);
+      if (oldTrack && oldTrack.id !== event.track.id) {
+        remoteStream.removeTrack(oldTrack);
+      }
+      if (!remoteStream.getTracks().some((t) => t.id === event.track.id)) {
+        remoteStream.addTrack(event.track);
+      }
+
+      this.playRemoteAudio(remoteUserId, remoteStream);
+
+      const el = this.remoteVideoElements.get(remoteUserId);
+      if (el) {
+        if (el.srcObject !== remoteStream) {
+          el.srcObject = remoteStream;
+        }
+        el.play().catch(() => {});
+      }
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        api
+          .sendWebRtcSignal(
+            remoteUserId,
+            { type: 'candidate', candidate: event.candidate },
+            callId || this.currentCallId
+          )
+          .catch(() => {});
+      }
+    };
+
+    return pc;
+  }
+
+  async syncTracksToPeers() {
+    const broadcastStream = this.getBroadcastStream();
+    const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live') || null;
+    const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live') || null;
+
+    for (const [peerId, pc] of this.peers.entries()) {
+      if (pc.signalingState === 'closed') continue;
+      const senders = pc.getSenders();
+      let needsRenegotiation = false;
+
+      const audioSender = senders.find((s) => s.track?.kind === 'audio');
+      if (audioSender) {
+        if (audioSender.track !== liveAudio) {
+          await audioSender.replaceTrack(liveAudio).catch(() => {});
+        }
+      } else if (liveAudio) {
+        try {
+          pc.addTrack(liveAudio, broadcastStream);
+          needsRenegotiation = true;
+        } catch {}
+      }
+
+      const videoSender = senders.find((s) => s.track?.kind === 'video');
+      if (videoSender) {
+        if (videoSender.track !== liveVideo) {
+          await videoSender.replaceTrack(liveVideo).catch(() => {});
+        }
+      } else if (liveVideo) {
+        try {
+          pc.addTrack(liveVideo, broadcastStream);
+          needsRenegotiation = true;
+        } catch {}
+      }
+
+      if (needsRenegotiation) {
+        this.renegotiatePeer(peerId).catch(() => {});
+      }
+    }
+  }
+
+  async renegotiatePeer(peerId: string) {
+    const pc = this.peers.get(peerId);
+    if (!pc || pc.signalingState === 'closed') return;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await api
+        .sendWebRtcSignal(peerId, { type: 'offer', sdp: offer }, this.currentCallId)
+        .catch(() => {});
+      this.log('call', 'WebRTC.renegotiateOffer', `to=${peerId}`, 'ok');
+    } catch (err: any) {
+      console.warn(`[WebRTC] Renegotiation with ${peerId} failed:`, err);
+    }
+  }
+
   async connectToPeer(remoteUserId: string, callId: string) {
     if (typeof window === 'undefined' || !window.RTCPeerConnection) return;
-    if (this.peers.has(remoteUserId)) return;
+    if (callId) this.currentCallId = callId;
+
+    let pc = this.peers.get(remoteUserId);
+    if (pc && pc.signalingState !== 'closed' && pc.connectionState !== 'failed') {
+      await this.syncTracksToPeers();
+      return;
+    }
 
     try {
       this.unlockAudio();
-      let stream = this.getBroadcastStream();
-      if (stream.getAudioTracks().length === 0) {
-        const mic = await this.ensureLocalMedia(true, false);
-        if (mic) {
-          mic.getAudioTracks().forEach((t) => {
-            if (t.readyState === 'live' && !stream.getAudioTracks().some((x) => x.id === t.id)) {
-              stream.addTrack(t);
-            }
-          });
-        }
-      }
+      await this.ensureLocalMedia(true, false);
 
-      const pc = new RTCPeerConnection({
-        iceServers: this.getIceServers(),
-      });
-      this.peers.set(remoteUserId, pc);
-
-      pc.onconnectionstatechange = () => {
-        this.log('call', 'WebRTC.connectionState', `peer=${remoteUserId} state=${pc.connectionState}`, pc.connectionState === 'connected' ? 'ok' : 'info');
-      };
-
-      stream.getTracks().forEach((track) => {
-        try {
-          pc.addTrack(track, stream);
-        } catch {}
-      });
-
-      pc.ontrack = (event) => {
-        const remoteStream = event.streams[0] || new MediaStream([event.track]);
-        this.remoteStreams.set(remoteUserId, remoteStream);
-        this.playRemoteAudio(remoteUserId, remoteStream);
-        const el = this.remoteVideoElements.get(remoteUserId);
-        if (el) {
-          el.srcObject = remoteStream;
-          el.play().catch(() => {});
-        }
-      };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          api.sendWebRtcSignal(remoteUserId, { type: 'candidate', candidate: event.candidate }, callId).catch(() => {});
-        }
-      };
-
+      pc = this.createPeerConnection(remoteUserId, callId);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      await api.sendWebRtcSignal(remoteUserId, { type: 'offer', sdp: offer }, callId).catch(() => {});
+      await api
+        .sendWebRtcSignal(remoteUserId, { type: 'offer', sdp: offer }, callId)
+        .catch(() => {});
       this.log('call', 'WebRTC.offerSent', `to=${remoteUserId}`, 'ok');
     } catch (err: any) {
       this.log('call', 'WebRTC.connectError', err?.message || 'P2P setup failed', 'warn');
@@ -774,73 +884,14 @@ class NexconnService {
 
   async handleWebRtcSignal(fromUserId: string, signal: any, callId: string) {
     if (typeof window === 'undefined' || !window.RTCPeerConnection || !signal) return;
+    if (callId) this.currentCallId = callId;
 
     try {
       this.unlockAudio();
       let pc = this.peers.get(fromUserId);
-      if (!pc) {
-        let stream = this.getBroadcastStream();
-        if (stream.getAudioTracks().length === 0) {
-          const mic = await this.ensureLocalMedia(true, false);
-          if (mic) {
-            mic.getAudioTracks().forEach((t) => {
-              if (t.readyState === 'live' && !stream.getAudioTracks().some((x) => x.id === t.id)) {
-                stream.addTrack(t);
-              }
-            });
-          }
-        }
-
-        const newPc = new RTCPeerConnection({
-          iceServers: this.getIceServers(),
-        });
-        this.peers.set(fromUserId, newPc);
-        pc = newPc;
-
-        newPc.onconnectionstatechange = () => {
-          this.log('call', 'WebRTC.connectionState', `peer=${fromUserId} state=${newPc.connectionState}`, newPc.connectionState === 'connected' ? 'ok' : 'info');
-        };
-
-        stream.getTracks().forEach((track) => {
-          try {
-            newPc.addTrack(track, stream);
-          } catch {}
-        });
-
-        newPc.ontrack = (event) => {
-          const remoteStream = event.streams[0] || new MediaStream([event.track]);
-          this.remoteStreams.set(fromUserId, remoteStream);
-          this.playRemoteAudio(fromUserId, remoteStream);
-          const el = this.remoteVideoElements.get(fromUserId);
-          if (el) {
-            el.srcObject = remoteStream;
-            el.play().catch(() => {});
-          }
-        };
-
-        newPc.onicecandidate = (event) => {
-          if (event.candidate) {
-            api.sendWebRtcSignal(fromUserId, { type: 'candidate', candidate: event.candidate }, callId).catch(() => {});
-          }
-        };
-      }
-
-      // Ensure all current outgoing tracks (screen & audio) are present on pc
-      const activeStream = this.getBroadcastStream();
-      if (pc && activeStream) {
-        const senders = pc.getSenders();
-        activeStream.getTracks().forEach((t) => {
-          const sender = senders.find((s) => s.track?.kind === t.kind);
-          if (sender) {
-            if (sender.track !== t) {
-              sender.replaceTrack(t).catch(() => {});
-            }
-          } else {
-            try {
-              pc!.addTrack(t, activeStream);
-            } catch {}
-          }
-        });
+      if (!pc || pc.signalingState === 'closed') {
+        await this.ensureLocalMedia(true, false);
+        pc = this.createPeerConnection(fromUserId, callId);
       }
 
       const drainCandidates = async () => {
@@ -854,16 +905,29 @@ class NexconnService {
       };
 
       if (signal.type === 'offer') {
+        const isPolite = !this.currentUserId || this.currentUserId > fromUserId;
+        const offerCollision = pc.signalingState !== 'stable';
+        if (offerCollision) {
+          if (!isPolite) {
+            return;
+          }
+          await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+        }
+
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         await drainCandidates();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        await api.sendWebRtcSignal(fromUserId, { type: 'answer', sdp: answer }, callId).catch(() => {});
+        await api
+          .sendWebRtcSignal(fromUserId, { type: 'answer', sdp: answer }, callId || this.currentCallId)
+          .catch(() => {});
         this.log('call', 'WebRTC.answerSent', `to=${fromUserId}`, 'ok');
       } else if (signal.type === 'answer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-        await drainCandidates();
-        this.log('call', 'WebRTC.connected', `from=${fromUserId}`, 'ok');
+        if (pc.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          await drainCandidates();
+          this.log('call', 'WebRTC.connected', `from=${fromUserId}`, 'ok');
+        }
       } else if (signal.type === 'candidate' && signal.candidate) {
         if (!pc.remoteDescription || !pc.remoteDescription.type) {
           const queued = this.pendingCandidates.get(fromUserId) || [];
@@ -890,6 +954,7 @@ class NexconnService {
         t.enabled = enabled;
       });
     }
+    await this.syncTracksToPeers();
     if (this.mode === 'connected' && this.callEngine) {
       await this.callEngine.enableMicrophone(enabled).catch(() => {});
     }
@@ -902,8 +967,10 @@ class NexconnService {
     } else if (this.localStream) {
       this.localStream.getVideoTracks().forEach((t) => {
         t.stop();
+        this.localStream?.removeTrack(t);
       });
     }
+    await this.syncTracksToPeers();
     if (this.mode === 'connected' && this.callEngine) {
       await this.callEngine.enableCamera(enabled).catch(() => {});
     }
@@ -915,26 +982,7 @@ class NexconnService {
       this.screenStream.getTracks().forEach((t) => t.stop());
     }
     this.screenStream = stream;
-    const videoTrack = stream?.getVideoTracks()[0] || null;
-
-    this.peers.forEach((pc) => {
-      const senders = pc.getSenders();
-      const videoSender = senders.find((s) => s.track?.kind === 'video');
-      if (videoTrack) {
-        if (videoSender) {
-          videoSender.replaceTrack(videoTrack).catch(() => {});
-        } else {
-          try {
-            pc.addTrack(videoTrack, stream!);
-          } catch {}
-        }
-      } else {
-        const camTrack = this.localStream?.getVideoTracks().find((t) => t.readyState === 'live') || null;
-        if (videoSender) {
-          videoSender.replaceTrack(camTrack).catch(() => {});
-        }
-      }
-    });
+    this.syncTracksToPeers();
     this.log('call', 'ScreenStream.set', `Screen stream active: ${!!stream}`, 'ok');
   }
 
@@ -955,7 +1003,6 @@ class NexconnService {
       if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
         try {
           if (isMobile) {
-            // Android Chrome: never request audio: true as it causes immediate rejection
             stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
           } else {
             try {
@@ -994,6 +1041,7 @@ class NexconnService {
             this.setScreenStream(null);
           };
         }
+        await this.syncTracksToPeers();
         this.log('call', 'ScreenShare.start', 'Started screen capture stream', 'ok');
         return stream;
       }
@@ -1007,11 +1055,31 @@ class NexconnService {
   async ensureLocalMedia(audio: boolean, video: boolean): Promise<MediaStream | null> {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
     try {
-      if (this.localStream) {
-        const hasVideo = this.localStream.getVideoTracks().some((t) => t.readyState === 'live');
-        const hasAudio = this.localStream.getAudioTracks().some((t) => t.readyState === 'live');
-        if ((!video || hasVideo) && (!audio || hasAudio)) return this.localStream;
+      const hasVideo = this.localStream?.getVideoTracks().some((t) => t.readyState === 'live');
+      const hasAudio = this.localStream?.getAudioTracks().some((t) => t.readyState === 'live');
+
+      if (this.localStream && (!video || hasVideo) && (!audio || hasAudio)) {
+        return this.localStream;
       }
+
+      if (this.localStream && hasAudio && video && !hasVideo) {
+        const vStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        });
+        vStream.getVideoTracks().forEach((vt) => this.localStream!.addTrack(vt));
+        await this.syncTracksToPeers();
+        return this.localStream;
+      }
+
+      if (this.localStream && hasVideo && audio && !hasAudio) {
+        const aStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        aStream.getAudioTracks().forEach((at) => this.localStream!.addTrack(at));
+        await this.syncTracksToPeers();
+        return this.localStream;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: audio
           ? {
@@ -1028,16 +1096,31 @@ class NexconnService {
             }
           : false,
       });
-      this.localStream?.getTracks().forEach((t) => t.stop());
+
+      if (this.localStream) {
+        this.localStream.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch {}
+        });
+      }
       this.localStream = stream;
+      await this.syncTracksToPeers();
       return stream;
     } catch (err: any) {
       console.warn('[VoiceChat] getUserMedia error:', err);
       if (audio && !video) {
         try {
           const fallbackStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          this.localStream?.getTracks().forEach((t) => t.stop());
+          if (this.localStream) {
+            this.localStream.getTracks().forEach((t) => {
+              try {
+                t.stop();
+              } catch {}
+            });
+          }
           this.localStream = fallbackStream;
+          await this.syncTracksToPeers();
           return fallbackStream;
         } catch (fbErr) {
           console.warn('[VoiceChat] Fallback getUserMedia error:', fbErr);
@@ -1045,6 +1128,28 @@ class NexconnService {
       }
       return null;
     }
+  }
+
+  closePeer(userId: string) {
+    const pc = this.peers.get(userId);
+    if (pc) {
+      try {
+        pc.close();
+      } catch {}
+      this.peers.delete(userId);
+    }
+    const audio = this.remoteAudioElements.get(userId);
+    if (audio) {
+      try {
+        audio.pause();
+        audio.srcObject = null;
+        audio.remove();
+      } catch {}
+      this.remoteAudioElements.delete(userId);
+    }
+    this.remoteStreams.delete(userId);
+    this.remoteVideoElements.delete(userId);
+    this.pendingCandidates.delete(userId);
   }
 
   stopMediaTracks() {
