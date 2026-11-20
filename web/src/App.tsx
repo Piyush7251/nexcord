@@ -1373,16 +1373,6 @@ export function App() {
                 <Users size={18} />
               </button>
             )}
-
-            <button
-              type="button"
-              className={`nc-sdk-header-pill ${sdkMode} desktop-only`}
-              onClick={() => setShowSdkModal(true)}
-              title="Open Nexconn Chat & Call SDK Console"
-            >
-              <span className="nc-sdk-dot" />
-              <span>{sdkMode === 'connected' ? 'Nexconn Live' : 'Nexconn SDK'}</span>
-            </button>
           </div>
         </header>
 
