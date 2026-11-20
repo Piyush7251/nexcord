@@ -250,7 +250,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                     Enter SMS Verification Code
                   </h2>
                   <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    An SMS with your 6-digit code was sent to <strong>{fullPhone}</strong>. Check your phone's Messages app.
+                    An SMS with your 6-digit code was sent to <strong>{fullPhone}</strong> via Fast2SMS.
+                  </p>
+                  <p style={{ fontSize: 11.5, marginTop: 4, color: '#f38686', fontStyle: 'italic' }}>
+                    📱 Carrier Tip: If it doesn't appear in your main inbox, check your phone's <strong>"Spam and blocked"</strong> folder (or use test code <strong>123456</strong>).
                   </p>
                 </div>
 
