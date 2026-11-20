@@ -198,7 +198,13 @@ export function App() {
   const maybeConnectToPeer = useCallback((peerId: string, callId: string) => {
     const myId = meRef.current?.id;
     if (!myId || !peerId || myId === peerId) return;
-    nexconn.connectToPeer(peerId, callId).catch(() => {});
+    // Perfect deterministic WebRTC initiation:
+    // Only the peer with lexicographically greater userId initiates the offer.
+    // The other peer waits to receive the offer and answers it.
+    // This completely eliminates WebRTC glare, offer collisions, and candidate desynchronization.
+    if (myId > peerId) {
+      nexconn.connectToPeer(peerId, callId).catch(() => {});
+    }
   }, []);
 
   // WebRTC Signal Polling Fallback (ensures signals are never lost even if SSE buffers behind proxy/Cloudflare)
@@ -216,10 +222,32 @@ export function App() {
           }
         }
       } catch {}
-    }, 1200);
+    }, 1000);
 
     return () => clearInterval(timer);
   }, [me, callState.status, myVoice]);
+
+  // Self-healing WebRTC watchdog (reconnects stalled or failed peer connections)
+  useEffect(() => {
+    if (!me || (!myVoice && callState.status !== 'connected')) return;
+    const callId = nexconn.getCurrentCallId() || callState.callId;
+    if (!callId) return;
+
+    const timer = setInterval(() => {
+      const myId = meRef.current?.id;
+      if (!myId) return;
+      callState.peerIds.forEach((pid) => {
+        if (myId > pid) {
+          const state = nexconn.getPeerConnectionState(pid);
+          if (state === 'failed' || state === 'disconnected' || state === 'new') {
+            nexconn.connectToPeer(pid, callId).catch(() => {});
+          }
+        }
+      });
+    }, 2500);
+
+    return () => clearInterval(timer);
+  }, [me, myVoice, callState.status, callState.callId, callState.peerIds]);
 
   const activeServer = useMemo(
     () => servers.find((s) => s.id === activeServerId) || null,

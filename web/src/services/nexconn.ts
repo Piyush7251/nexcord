@@ -958,9 +958,15 @@ class NexconnService {
     if (callId) this.currentCallId = callId;
 
     let pc = this.peers.get(remoteUserId);
-    if (pc && pc.signalingState !== 'closed' && pc.connectionState !== 'failed') {
+    if (pc && pc.signalingState !== 'closed' && (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected')) {
       await this.syncTracksToPeers();
       return;
+    }
+
+    if (pc && (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed' || pc.signalingState === 'closed')) {
+      try { pc.close(); } catch {}
+      this.peers.delete(remoteUserId);
+      pc = undefined;
     }
 
     try {
@@ -985,12 +991,13 @@ class NexconnService {
 
     try {
       const sdpStr = typeof signal.sdp === 'string' ? signal.sdp : (signal.sdp?.sdp || '');
-      const candStr = typeof signal.candidate === 'string' ? signal.candidate : (signal.candidate?.candidate || '');
-      const sigKey = `${fromUserId}:${signal.type}:${(sdpStr || candStr).slice(0, 80)}`;
-      if (sigKey && this.seenSignals.has(sigKey)) return;
-      if (sigKey) {
+
+      // Only deduplicate identical offers/answers to prevent duplicate SDP rollbacks
+      if (signal.type === 'offer' || signal.type === 'answer') {
+        const sigKey = `${fromUserId}:${signal.type}:${sdpStr.slice(0, 160)}`;
+        if (this.seenSignals.has(sigKey)) return;
         this.seenSignals.add(sigKey);
-        if (this.seenSignals.size > 300) {
+        if (this.seenSignals.size > 100) {
           const first = this.seenSignals.values().next().value;
           if (first) this.seenSignals.delete(first);
         }
