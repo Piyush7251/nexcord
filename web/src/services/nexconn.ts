@@ -67,6 +67,7 @@ class NexconnService {
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
   private peers: Map<string, RTCPeerConnection> = new Map();
+  private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
   private remoteStreams: Map<string, MediaStream> = new Map();
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
   private remoteAudioElements: Map<string, HTMLAudioElement> = new Map();
@@ -687,6 +688,31 @@ class NexconnService {
     return stream;
   }
 
+  private getIceServers(): RTCIceServer[] {
+    return [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'stun:global.stun.twilio.com:3478' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+    ];
+  }
+
   async connectToPeer(remoteUserId: string, callId: string) {
     if (typeof window === 'undefined' || !window.RTCPeerConnection) return;
     if (this.peers.has(remoteUserId)) return;
@@ -706,13 +732,13 @@ class NexconnService {
       }
 
       const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-        ],
+        iceServers: this.getIceServers(),
       });
       this.peers.set(remoteUserId, pc);
+
+      pc.onconnectionstatechange = () => {
+        this.log('call', 'WebRTC.connectionState', `peer=${remoteUserId} state=${pc.connectionState}`, pc.connectionState === 'connected' ? 'ok' : 'info');
+      };
 
       stream.getTracks().forEach((track) => {
         try {
@@ -766,14 +792,14 @@ class NexconnService {
         }
 
         const newPc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-          ],
+          iceServers: this.getIceServers(),
         });
         this.peers.set(fromUserId, newPc);
         pc = newPc;
+
+        newPc.onconnectionstatechange = () => {
+          this.log('call', 'WebRTC.connectionState', `peer=${fromUserId} state=${newPc.connectionState}`, newPc.connectionState === 'connected' ? 'ok' : 'info');
+        };
 
         stream.getTracks().forEach((track) => {
           try {
@@ -817,17 +843,41 @@ class NexconnService {
         });
       }
 
+      const drainCandidates = async () => {
+        const queued = this.pendingCandidates.get(fromUserId) || [];
+        for (const cand of queued) {
+          try {
+            await pc!.addIceCandidate(new RTCIceCandidate(cand));
+          } catch {}
+        }
+        this.pendingCandidates.delete(fromUserId);
+      };
+
       if (signal.type === 'offer') {
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        await drainCandidates();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await api.sendWebRtcSignal(fromUserId, { type: 'answer', sdp: answer }, callId).catch(() => {});
         this.log('call', 'WebRTC.answerSent', `to=${fromUserId}`, 'ok');
       } else if (signal.type === 'answer') {
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        await drainCandidates();
         this.log('call', 'WebRTC.connected', `from=${fromUserId}`, 'ok');
       } else if (signal.type === 'candidate' && signal.candidate) {
-        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
+        if (!pc.remoteDescription || !pc.remoteDescription.type) {
+          const queued = this.pendingCandidates.get(fromUserId) || [];
+          queued.push(signal.candidate);
+          this.pendingCandidates.set(fromUserId, queued);
+        } else {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          } catch {
+            const queued = this.pendingCandidates.get(fromUserId) || [];
+            queued.push(signal.candidate);
+            this.pendingCandidates.set(fromUserId, queued);
+          }
+        }
       }
     } catch (err: any) {
       this.log('call', 'WebRTC.signalError', err?.message || 'Signal handling failed', 'warn');
@@ -1008,6 +1058,7 @@ class NexconnService {
       } catch {}
     }
     this.peers.clear();
+    this.pendingCandidates.clear();
     this.remoteStreams.clear();
     this.remoteVideoElements.clear();
     this.remoteAudioElements.forEach((audio) => {
