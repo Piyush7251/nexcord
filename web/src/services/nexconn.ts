@@ -75,6 +75,7 @@ class NexconnService {
   private isDeafened: boolean = false;
   private currentCallId: string = '';
   private currentUserId: string = '';
+  private seenSignals: Set<string> = new Set();
 
   setCurrentUser(userId: string) {
     this.currentUserId = userId;
@@ -583,6 +584,11 @@ class NexconnService {
 
   bindLocalVideo(videoElement: HTMLVideoElement | null) {
     if (!videoElement) return;
+    videoElement.muted = true;
+    videoElement.defaultMuted = true;
+    videoElement.setAttribute('playsinline', 'true');
+    videoElement.setAttribute('webkit-playsinline', 'true');
+    videoElement.setAttribute('x5-playsinline', 'true');
     if (this.mode === 'connected' && this.callEngine) {
       try {
         this.callEngine.setLocalVideoView({ videoElement });
@@ -592,13 +598,13 @@ class NexconnService {
       }
     }
     const stream = this.getLocalStream();
-    const videoTrack = stream?.getVideoTracks().find((t) => t.readyState === 'live') || null;
-    const curTrack = (videoElement.srcObject as MediaStream)?.getVideoTracks()[0] || null;
-    if (curTrack !== videoTrack) {
-      videoElement.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
-    }
-    if (videoTrack && videoElement.paused) {
-      videoElement.play().catch(() => {});
+    if (stream) {
+      if (videoElement.srcObject !== stream) {
+        videoElement.srcObject = stream;
+      }
+      if (videoElement.paused) {
+        videoElement.play().catch(() => {});
+      }
     }
   }
 
@@ -607,15 +613,29 @@ class NexconnService {
       this.remoteVideoElements.delete(userId);
       return;
     }
+    videoElement.muted = true;
+    videoElement.defaultMuted = true;
+    videoElement.setAttribute('playsinline', 'true');
+    videoElement.setAttribute('webkit-playsinline', 'true');
+    videoElement.setAttribute('x5-playsinline', 'true');
     this.remoteVideoElements.set(userId, videoElement);
+
     const existingStream = this.remoteStreams.get(userId);
-    const videoTrack = existingStream?.getVideoTracks().find((t) => t.readyState === 'live') || null;
-    const curTrack = (videoElement.srcObject as MediaStream)?.getVideoTracks()[0] || null;
-    if (curTrack !== videoTrack) {
-      videoElement.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
-    }
-    if (videoTrack && videoElement.paused) {
-      videoElement.play().catch(() => {});
+    if (existingStream) {
+      if (videoElement.srcObject !== existingStream) {
+        videoElement.srcObject = existingStream;
+      }
+      existingStream.getVideoTracks().forEach((vt) => {
+        vt.onunmute = () => {
+          if (videoElement.paused) videoElement.play().catch(() => {});
+        };
+      });
+      existingStream.onaddtrack = () => {
+        if (videoElement.paused) videoElement.play().catch(() => {});
+      };
+      if (videoElement.paused) {
+        videoElement.play().catch(() => {});
+      }
     }
 
     if (this.mode === 'connected' && this.callEngine) {
@@ -776,37 +796,36 @@ class NexconnService {
     pc.ontrack = (event) => {
       let remoteStream = this.remoteStreams.get(remoteUserId);
       if (!remoteStream) {
-        remoteStream = new MediaStream();
+        remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream();
         this.remoteStreams.set(remoteUserId, remoteStream);
       }
 
-      const oldTrack = remoteStream.getTracks().find((t) => t.kind === event.track.kind);
-      if (oldTrack && oldTrack.id !== event.track.id) {
-        remoteStream.removeTrack(oldTrack);
-      }
       if (!remoteStream.getTracks().some((t) => t.id === event.track.id)) {
         remoteStream.addTrack(event.track);
       }
 
-      if (event.track.kind === 'audio') {
-        this.playRemoteAudio(remoteUserId, new MediaStream([event.track]));
+      const el = this.remoteVideoElements.get(remoteUserId);
+      if (el) {
+        if (el.srcObject !== remoteStream) {
+          el.srcObject = remoteStream;
+        }
+        el.muted = true;
+        el.defaultMuted = true;
+        el.setAttribute('playsinline', 'true');
+        el.setAttribute('webkit-playsinline', 'true');
+        el.setAttribute('x5-playsinline', 'true');
+        el.play().catch(() => {});
       }
 
-      if (event.track.kind === 'video') {
-        const updateVideo = () => {
-          const el = this.remoteVideoElements.get(remoteUserId);
-          if (el) {
-            const curTrack = (el.srcObject as MediaStream)?.getVideoTracks()[0] || null;
-            if (curTrack !== event.track) {
-              el.srcObject = new MediaStream([event.track]);
-            }
-            if (el.paused) {
-              el.play().catch(() => {});
-            }
-          }
-        };
-        event.track.onunmute = updateVideo;
-        updateVideo();
+      event.track.onunmute = () => {
+        const vel = this.remoteVideoElements.get(remoteUserId);
+        if (vel && vel.paused) {
+          vel.play().catch(() => {});
+        }
+      };
+
+      if (event.track.kind === 'audio') {
+        this.playRemoteAudio(remoteUserId, remoteStream);
       }
     };
 
@@ -868,17 +887,16 @@ class NexconnService {
           }
           if (videoTransceiver.sender.track !== liveVideo) {
             await videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
-            needsRenegotiation = true;
           }
         } else {
           if (videoTransceiver.sender.track !== null) {
             await videoTransceiver.sender.replaceTrack(null).catch(() => {});
-            needsRenegotiation = true;
           }
         }
       } else if (liveVideo) {
         try {
           pc.addTrack(liveVideo, broadcastStream);
+          needsRenegotiation = true;
         } catch {}
       }
 
@@ -948,6 +966,14 @@ class NexconnService {
   async handleWebRtcSignal(fromUserId: string, signal: any, callId: string) {
     if (typeof window === 'undefined' || !window.RTCPeerConnection || !signal) return;
     if (callId) this.currentCallId = callId;
+
+    const sigKey = `${fromUserId}:${signal.type}:${signal.sdp ? signal.sdp.slice(0, 120) : signal.candidate?.candidate || ''}`;
+    if (this.seenSignals.has(sigKey)) return;
+    this.seenSignals.add(sigKey);
+    if (this.seenSignals.size > 300) {
+      const first = this.seenSignals.values().next().value;
+      if (first) this.seenSignals.delete(first);
+    }
 
     try {
       this.unlockAudio();
@@ -1068,9 +1094,14 @@ class NexconnService {
       if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
         try {
           if (isMobile) {
-            stream = await navigator.mediaDevices.getDisplayMedia({
-              video: { width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } },
-            });
+            try {
+              // Mobile Android Chrome works best with clean video: true
+              stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            } catch {
+              stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+              });
+            }
           } else {
             try {
               stream = await navigator.mediaDevices.getDisplayMedia({
@@ -1087,8 +1118,9 @@ class NexconnService {
           console.warn('Native getDisplayMedia rejected or unsupported on this device', displayErr);
           if (isMobile) {
             try {
+              // In WebView / in-app browsers where screen casting is locked by OS: fall back to back camera
               stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
               });
             } catch (camErr) {
               console.warn('Mobile camera fallback failed', camErr);
@@ -1098,7 +1130,7 @@ class NexconnService {
       } else if (isMobile) {
         try {
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
           });
         } catch (camErr) {
           console.warn('Mobile camera fallback failed', camErr);
@@ -1113,7 +1145,7 @@ class NexconnService {
             this.setScreenStream(null);
           };
         }
-        await this.syncTracksToPeers(false);
+        await this.syncTracksToPeers(true);
         this.log('call', 'ScreenShare.start', 'Started screen capture stream', 'ok');
         return stream;
       }
@@ -1139,7 +1171,7 @@ class NexconnService {
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
         });
         vStream.getVideoTracks().forEach((vt) => this.localStream!.addTrack(vt));
-        await this.syncTracksToPeers(false);
+        await this.syncTracksToPeers(true);
         return this.localStream;
       }
 
@@ -1148,7 +1180,7 @@ class NexconnService {
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
         aStream.getAudioTracks().forEach((at) => this.localStream!.addTrack(at));
-        await this.syncTracksToPeers(false);
+        await this.syncTracksToPeers(true);
         return this.localStream;
       }
 

@@ -4117,6 +4117,11 @@
     border-radius: 10px;
   }
 
+  .nc-voice-tile.streaming-tile {
+    grid-column: 1 / -1 !important;
+    min-height: 220px !important;
+  }
+
   .nc-voice-tile-footer {
     left: 6px;
     right: 6px;
