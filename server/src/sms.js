@@ -4,9 +4,32 @@ import { addLog } from './logger.js';
 
 let cachedWabaConfig = null;
 let lastWabaFetchTime = 0;
+let cachedWallet = null;
+let lastWalletFetch = 0;
 let dynamicApiKey = null;
 let dynamicPhoneId = null;
 let dynamicMessageId = null;
+
+export async function getFast2SmsWalletBalance(apiKey) {
+  const now = Date.now();
+  if (cachedWallet !== null && (now - lastWalletFetch) < 30000) {
+    return cachedWallet;
+  }
+  try {
+    const res = await fetch('https://www.fast2sms.com/dev/wallet', {
+      headers: { authorization: apiKey },
+    });
+    const data = await res.json();
+    if (data && data.return) {
+      cachedWallet = parseFloat(data.wallet || 0);
+      lastWalletFetch = now;
+      return cachedWallet;
+    }
+  } catch (err) {
+    console.warn('[Fast2SMS] Wallet check failed:', err.message);
+  }
+  return cachedWallet !== null ? cachedWallet : 0;
+}
 
 export function setFast2SmsRuntime({ apiKey, phoneId, messageId }) {
   if (apiKey !== undefined) {
@@ -168,6 +191,15 @@ export async function sendSms({ phone, code }) {
       phoneId = autoCfg.phoneId;
       messageId = autoCfg.messageId;
     }
+  }
+
+  // Safety floor check: never dispatch if balance < ₹0.25 (prevents overdraft/negative balance)
+  const currentBalance = await getFast2SmsWalletBalance(fast2SmsKey);
+  if (currentBalance < 0.25) {
+    const reason = `Fast2SMS balance is exhausted (${currentBalance < 0 ? '-' : ''}₹${Math.abs(currentBalance).toFixed(2)}). Please recharge at fast2sms.com.`;
+    addLog('warn', 'FAST2SMS', `Blocked outbound SMS to ${phone}: ${reason}`);
+    results.details = reason;
+    return results;
   }
 
   if (fast2SmsKey && messageId) {

@@ -291,6 +291,32 @@ app.post('/api/config/credentials', wrap(async (req, res) => {
 const otpStore = new Map(); // phone -> { code, expiresAt }
 const otpCooldownStore = new Map(); // phone -> { attempts: number, cooldownUntil: number }
 
+// Anti-Spam & Concurrency Protection
+const activePhoneDispatches = new Set(); // Concurrency Lock: Prevents simultaneous parallel requests for same phone
+const activeIpDispatches = new Set(); // Concurrency Lock: Prevents simultaneous parallel requests from same IP
+
+const ipRateLimits = new Map(); // ip -> { count: number, windowStart: number }
+const IP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const IP_MAX_REQUESTS = 3; // Max 3 OTP requests per IP per 10 minutes
+
+const phoneDailyLimits = new Map(); // phone -> { count: number, windowStart: number }
+const PHONE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+const PHONE_MAX_DAILY = 5; // Max 5 OTP requests per phone number per day
+
+const globalOtpTimestamps = []; // Server-wide circuit breaker: timestamps of all OTP requests in last 10m
+const GLOBAL_WINDOW_MS = 10 * 60 * 1000;
+const GLOBAL_MAX_REQUESTS = 15; // Max 15 OTPs server-wide across all users per 10 minutes
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    return String(forwarded).split(',')[0].trim();
+  }
+  const realIp = req.headers['x-real-ip'];
+  if (realIp) return String(realIp).trim();
+  return req.socket?.remoteAddress || req.ip || 'unknown-ip';
+}
+
 // Progressive OTP cooldown in minutes: 2, 3, 5, 10, 15, 20, 30 (caps at 30 min)
 const OTP_COOLDOWN_SCHEDULE_MINUTES = [2, 3, 5, 10, 15, 20, 30];
 
@@ -350,10 +376,55 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
     }
   }
 
+  const clientIp = getClientIp(req);
   const now = Date.now();
-  const cooldownRecord = otpCooldownStore.get(clean);
 
-  // Check if cooldown timer is still active
+  // 1. Anti-Concurrency Lock: Prevent simultaneous parallel requests for same phone or from same IP
+  if (activePhoneDispatches.has(clean)) {
+    addLog('warn', 'SECURITY', `Blocked concurrent OTP flood attempt for phone ${clean}`);
+    throw new HttpError(429, 'An OTP verification code request is already in progress for this phone. Please wait a moment.');
+  }
+  if (activeIpDispatches.has(clientIp) && !isAdmin) {
+    addLog('warn', 'SECURITY', `Blocked concurrent OTP flood attempt from IP ${clientIp}`);
+    throw new HttpError(429, 'A request is already in progress from your network. Please wait.');
+  }
+
+  // 2. Global Circuit-Breaker: Max 15 OTP requests across the whole server per 10 minutes
+  while (globalOtpTimestamps.length > 0 && globalOtpTimestamps[0] < now - GLOBAL_WINDOW_MS) {
+    globalOtpTimestamps.shift();
+  }
+  if (globalOtpTimestamps.length >= GLOBAL_MAX_REQUESTS && !isAdmin) {
+    addLog('error', 'SECURITY', `Global OTP circuit-breaker active (${globalOtpTimestamps.length} requests in 10m)`);
+    throw new HttpError(429, 'High OTP traffic detected across the system. For security, please try again in 5 minutes.');
+  }
+
+  // 3. Per-IP Rate Limit: Max 3 OTP requests per 10 minutes from this IP
+  let ipRecord = ipRateLimits.get(clientIp);
+  if (!ipRecord || (now - ipRecord.windowStart) > IP_WINDOW_MS) {
+    ipRecord = { count: 0, windowStart: now };
+    ipRateLimits.set(clientIp, ipRecord);
+  }
+  if (ipRecord.count >= IP_MAX_REQUESTS && !isAdmin) {
+    const waitSec = Math.ceil((ipRecord.windowStart + IP_WINDOW_MS - now) / 1000);
+    const m = Math.floor(waitSec / 60);
+    const s = waitSec % 60;
+    addLog('warn', 'SECURITY', `IP rate limit exceeded for ${clientIp} (${ipRecord.count}/${IP_MAX_REQUESTS} requests)`);
+    throw new HttpError(429, `Too many OTP requests from your network. Please wait ${m}m ${s}s before requesting again.`);
+  }
+
+  // 4. Per-Phone Daily Cap: Max 5 OTP requests per phone number in 24 hours
+  let phoneDaily = phoneDailyLimits.get(clean);
+  if (!phoneDaily || (now - phoneDaily.windowStart) > PHONE_DAILY_WINDOW_MS) {
+    phoneDaily = { count: 0, windowStart: now };
+    phoneDailyLimits.set(clean, phoneDaily);
+  }
+  if (phoneDaily.count >= PHONE_MAX_DAILY && !isAdmin) {
+    addLog('warn', 'SECURITY', `Daily OTP cap reached for ${clean} (${phoneDaily.count}/${PHONE_MAX_DAILY})`);
+    throw new HttpError(429, 'Daily OTP request limit reached for this number (5/5). Please try again in 24 hours.');
+  }
+
+  // 5. Progressive Cooldown Check: 2m, 3m, 5m, 10m, 15m, 20m, 30m
+  const cooldownRecord = otpCooldownStore.get(clean);
   if (cooldownRecord && cooldownRecord.cooldownUntil > now && !isAdmin) {
     const remainingSec = Math.ceil((cooldownRecord.cooldownUntil - now) / 1000);
     const m = Math.floor(remainingSec / 60);
@@ -384,39 +455,54 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
     });
   }
 
-  // Calculate cooldown duration based on attempt count
-  const currentAttempts = cooldownRecord ? cooldownRecord.attempts : 0;
-  const cooldownSec = getCooldownSecondsForAttempt(currentAttempts);
-  const cooldownUntil = now + cooldownSec * 1000;
+  // Acquire concurrency locks
+  activePhoneDispatches.add(clean);
+  activeIpDispatches.add(clientIp);
 
-  // Record cooldown tracking
-  otpCooldownStore.set(clean, {
-    attempts: currentAttempts + 1,
-    cooldownUntil,
-  });
+  try {
+    // Record IP, Daily, and Global usage
+    ipRecord.count += 1;
+    phoneDaily.count += 1;
+    globalOtpTimestamps.push(now);
 
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  otpStore.set(clean, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
-  addLog('info', 'AUTH', `Sending OTP to ${clean} (Attempt: ${currentAttempts + 1}, Cooldown: ${cooldownSec / 60}m)`);
+    // Calculate progressive cooldown duration based on attempt count
+    const currentAttempts = cooldownRecord ? cooldownRecord.attempts : 0;
+    const cooldownSec = getCooldownSecondsForAttempt(currentAttempts);
+    const cooldownUntil = now + cooldownSec * 1000;
 
-  const smsResult = await sendSms({ phone: clean, code });
+    // Record progressive cooldown tracking
+    otpCooldownStore.set(clean, {
+      attempts: currentAttempts + 1,
+      cooldownUntil,
+    });
 
-  console.log(`\n======================================================`);
-  console.log(`📲 [SMS OTP] To: ${clean} | Code: ${code} | Provider: ${smsResult.provider} | Cooldown: ${cooldownSec}s`);
-  console.log(`======================================================\n`);
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    otpStore.set(clean, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+    addLog('info', 'AUTH', `Sending OTP to ${clean} from IP ${clientIp} (Attempt: ${currentAttempts + 1}, Cooldown: ${cooldownSec / 60}m)`);
 
-  res.json({
-    ok: true,
-    phone: clean,
-    provider: smsResult.provider,
-    deliveredToCarrier: smsResult.deliveredToCarrier,
-    cooldownSeconds: cooldownSec,
-    nextCooldownSeconds: getCooldownSecondsForAttempt(currentAttempts + 1),
-    cooldownUntil,
-    message: smsResult.deliveredToCarrier
-      ? `Verification code sent via WhatsApp to ${clean}`
-      : (smsResult.details ? `Fast2SMS: ${smsResult.details}` : `Verification code sent to ${clean}`),
-  });
+    const smsResult = await sendSms({ phone: clean, code });
+
+    console.log(`\n======================================================`);
+    console.log(`📲 [SMS OTP] To: ${clean} | Code: ${code} | Provider: ${smsResult.provider} | IP: ${clientIp} | Cooldown: ${cooldownSec}s`);
+    console.log(`======================================================\n`);
+
+    res.json({
+      ok: true,
+      phone: clean,
+      provider: smsResult.provider,
+      deliveredToCarrier: smsResult.deliveredToCarrier,
+      cooldownSeconds: cooldownSec,
+      nextCooldownSeconds: getCooldownSecondsForAttempt(currentAttempts + 1),
+      cooldownUntil,
+      message: smsResult.deliveredToCarrier
+        ? `Verification code sent via WhatsApp to ${clean}`
+        : (smsResult.details ? `Fast2SMS: ${smsResult.details}` : `Verification code sent to ${clean}`),
+    });
+  } finally {
+    // Release concurrency locks
+    activePhoneDispatches.delete(clean);
+    activeIpDispatches.delete(clientIp);
+  }
 }));
 
 app.post('/api/auth/verify-otp', wrap(async (req, res) => {
