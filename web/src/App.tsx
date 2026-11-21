@@ -1863,6 +1863,7 @@ export function App() {
             {isViewingVoiceStage && (
               <VoiceCallStage
                 channel={viewMode === 'server' ? activeChannel : null}
+                serverId={viewMode === 'server' && activeServer ? activeServer.id : null}
                 voiceParticipants={
                   viewMode === 'server' && activeServer && activeChannel
                     ? activeServer.voiceStates[activeChannel.id] || []

@@ -1007,7 +1007,12 @@ class NexconnService {
         return;
       }
       const connectingAge = Date.now() - (this.peerConnectingSince.get(remoteUserId) || 0);
-      if (connectingAge < 10000 && (pc.connectionState === 'connecting' || pc.iceConnectionState === 'checking')) {
+      if (connectingAge < 15000 && (
+        pc.connectionState === 'connecting' || 
+        pc.connectionState === 'new' || 
+        pc.iceConnectionState === 'checking' || 
+        pc.iceConnectionState === 'new'
+      )) {
         // Negotiation already actively in progress; do not interrupt
         return;
       }
@@ -1058,15 +1063,13 @@ class NexconnService {
     try {
       const sdpStr = typeof signal.sdp === 'string' ? signal.sdp : (signal.sdp?.sdp || '');
 
-      // Only deduplicate identical offers/answers to prevent duplicate SDP rollbacks
-      if (signal.type === 'offer' || signal.type === 'answer') {
-        const sigKey = `${fromUserId}:${signal.type}:${sdpStr}`;
-        if (this.seenSignals.has(sigKey)) return;
-        this.seenSignals.add(sigKey);
-        if (this.seenSignals.size > 200) {
-          const first = this.seenSignals.values().next().value;
-          if (first) this.seenSignals.delete(first);
-        }
+      const candStr = signal.type === 'candidate' ? JSON.stringify(signal.candidate || '') : '';
+      const sigKey = `${fromUserId}:${signal.type}:${signal.type === 'candidate' ? candStr : sdpStr}`;
+      if (this.seenSignals.has(sigKey)) return;
+      this.seenSignals.add(sigKey);
+      if (this.seenSignals.size > 500) {
+        const first = this.seenSignals.values().next().value;
+        if (first) this.seenSignals.delete(first);
       }
 
       this.unlockAudio();
