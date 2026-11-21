@@ -27,7 +27,7 @@ export function setFast2SmsRuntime({ apiKey, phoneId, messageId }) {
 export function getFast2SmsRuntime() {
   const apiKey = dynamicApiKey || process.env.FAST2SMS_API_KEY || '5kNcFJhtHIVtXGS87CJ0WpXkY8Ka1yUQP6rHCvsmowD3Sh4tTB4fHSMFXBEMltKyE3ZWQyaXjy6mPMAn';
   const phoneId = dynamicPhoneId || process.env.FAST2SMS_WABA_PHONE_ID || '1454063874454915';
-  const messageId = dynamicMessageId || process.env.FAST2SMS_WABA_MESSAGE_ID || '';
+  const messageId = dynamicMessageId || process.env.FAST2SMS_WABA_MESSAGE_ID || '46101';
   return { apiKey: apiKey.trim(), phoneId: phoneId.trim(), messageId: messageId.trim() };
 }
 
@@ -184,7 +184,7 @@ export async function sendSms({ phone, code }) {
         return results;
       }
 
-      const errMsg = data?.message || data?.errors?.message_id?.[0] || 'Fast2SMS WhatsApp dispatch error';
+      const errMsg = Array.isArray(data?.message) ? data.message.join(', ') : (data?.message || data?.errors?.message_id?.[0] || 'Fast2SMS WhatsApp dispatch error');
       addLog('warn', 'FAST2SMS', `WhatsApp send rejected: ${errMsg}`);
       results.details = errMsg;
     } catch (err) {
