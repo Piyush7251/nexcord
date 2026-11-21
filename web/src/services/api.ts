@@ -6,7 +6,11 @@ export function getApiBase(): string {
   const saved = localStorage.getItem('nexcord_api_base');
   if (saved) return saved.replace(/\/+$/, '');
   if (typeof window !== 'undefined') {
-    const isCapacitor = !!(window as any).Capacitor || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:';
+    const isCapacitor =
+      !!(window as any).Capacitor ||
+      window.location.protocol === 'capacitor:' ||
+      window.location.protocol === 'file:' ||
+      (window.location.hostname === 'localhost' && !window.location.port);
     if (isCapacitor) {
       return PRODUCTION_API;
     }
