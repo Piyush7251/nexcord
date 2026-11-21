@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../models/models.dart';
@@ -361,25 +360,24 @@ class _LiveStreamStageViewState extends State<LiveStreamStageView> with SingleTi
     final canStream = isOwner || (widget.server.myPermissions?.canStream == true) || (widget.server.myPermissions?.admin == true);
 
     if (live != null) {
+      final remoteRenderer = !isMyStream ? media.getRemoteRenderer(live.userId) : null;
+      final hasRemoteVideo = !isMyStream && remoteRenderer != null && remoteRenderer.srcObject != null && media.hasRemoteVideo(live.userId);
       return Stack(
         fit: StackFit.expand,
         children: [
           // Live Video Layer
-          if (isMyStream && media.isCameraActive && media.cameraController != null)
-            FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: media.cameraController!.value.previewSize?.height ?? 100,
-                height: media.cameraController!.value.previewSize?.width ?? 100,
-                child: CameraPreview(media.cameraController!),
-              ),
+          if (isMyStream && media.isCameraActive && media.cameraRenderer != null)
+            RTCVideoView(
+              media.cameraRenderer!,
+              mirror: media.isFrontCamera,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
             )
           else if (isMyStream && media.isScreenSharing && media.screenRenderer != null)
             RTCVideoView(
               media.screenRenderer!,
               objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
             )
-          else
+          else ...[
             AnimatedBuilder(
               animation: _anim,
               builder: (_, __) => CustomPaint(
@@ -387,6 +385,15 @@ class _LiveStreamStageViewState extends State<LiveStreamStageView> with SingleTi
                 size: Size.infinite,
               ),
             ),
+            if (!isMyStream && remoteRenderer != null && remoteRenderer.srcObject != null)
+              Opacity(
+                opacity: hasRemoteVideo ? 1.0 : 0.0,
+                child: RTCVideoView(
+                  remoteRenderer,
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                ),
+              ),
+          ],
 
           // Active Stream Top Controls (Flip Cam, End Stream)
           Positioned(

@@ -363,4 +363,25 @@ class ApiService {
 
   Future<void> setMemberRole(String serverId, String userId, String role) =>
       _req('POST', '/api/servers/$serverId/members/$userId/role', {'role': role});
+
+  Future<List<Map<String, dynamic>>> getWebRtcIceServers() async {
+    final j = await _req('GET', '/api/webrtc/config');
+    return ((j['iceServers'] as List?) ?? [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<void> sendWebRtcSignal(String to, Map<String, dynamic> signal, [String callId = '']) =>
+      _req('POST', '/api/webrtc/signal', {
+        'to': to,
+        'signal': signal,
+        'callId': callId,
+      });
+
+  Future<List<Map<String, dynamic>>> getWebRtcSignals() async {
+    final j = await _req('GET', '/api/webrtc/signals');
+    return ((j['signals'] as List?) ?? [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
 }

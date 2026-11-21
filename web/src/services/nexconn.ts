@@ -885,7 +885,7 @@ class NexconnService {
     return api.sendWebRtcSignal(to, signal, this.currentCallId).catch(() => {});
   }
 
-  private createPeerConnection(remoteUserId: string, _asOfferer: boolean): RTCPeerConnection {
+  private createPeerConnection(remoteUserId: string, asOfferer: boolean): RTCPeerConnection {
     const old = this.peers.get(remoteUserId);
     if (old) {
       try { old.close(); } catch {}
@@ -948,37 +948,40 @@ class NexconnService {
       this.notifyChange();
     };
 
-    // Both peers add both audio and video transceivers upfront in sendrecv mode
-    const broadcastStream = this.getBroadcastStream();
-    const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live') || null;
-    const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live') || null;
+    // Only the offerer pre-creates sendrecv transceivers upfront;
+    // the answerer receives associated transceivers automatically via setRemoteDescription(offer).
+    if (asOfferer) {
+      const broadcastStream = this.getBroadcastStream();
+      const liveAudio = broadcastStream.getAudioTracks().find((t) => t.readyState === 'live') || null;
+      const liveVideo = broadcastStream.getVideoTracks().find((t) => t.readyState === 'live') || null;
 
-    const audioTr = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    const videoTr = pc.addTransceiver('video', { direction: 'sendrecv' });
+      const audioTr = pc.addTransceiver('audio', { direction: 'sendrecv', streams: [broadcastStream] });
+      const videoTr = pc.addTransceiver('video', { direction: 'sendrecv', streams: [broadcastStream] });
 
-    if (liveAudio) {
-      audioTr.sender.replaceTrack(liveAudio).catch(() => {});
-    }
-    if (liveVideo) {
-      videoTr.sender.replaceTrack(liveVideo).catch(() => {});
-    }
-
-    try {
-      const aParams = audioTr.sender.getParameters();
-      if (aParams?.encodings?.length) {
-        (aParams.encodings[0] as any).networkPriority = 'high';
-        audioTr.sender.setParameters(aParams).catch(() => {});
+      if (liveAudio) {
+        audioTr.sender.replaceTrack(liveAudio).catch(() => {});
       }
-    } catch {}
-
-    try {
-      const vParams = videoTr.sender.getParameters();
-      if (vParams?.encodings?.length) {
-        vParams.encodings[0].maxBitrate = 900000;
-        (vParams.encodings[0] as any).networkPriority = 'low';
-        videoTr.sender.setParameters(vParams).catch(() => {});
+      if (liveVideo) {
+        videoTr.sender.replaceTrack(liveVideo).catch(() => {});
       }
-    } catch {}
+
+      try {
+        const aParams = audioTr.sender.getParameters();
+        if (aParams?.encodings?.length) {
+          (aParams.encodings[0] as any).networkPriority = 'high';
+          audioTr.sender.setParameters(aParams).catch(() => {});
+        }
+      } catch {}
+
+      try {
+        const vParams = videoTr.sender.getParameters();
+        if (vParams?.encodings?.length) {
+          vParams.encodings[0].maxBitrate = 900000;
+          (vParams.encodings[0] as any).networkPriority = 'low';
+          videoTr.sender.setParameters(vParams).catch(() => {});
+        }
+      } catch {}
+    }
 
     pc.ontrack = (event) => {
       if (this.peers.get(remoteUserId) !== pc) return;
@@ -1043,7 +1046,7 @@ class NexconnService {
     for (const tr of pc.getTransceivers()) {
       if ((tr as any).stopped || tr.currentDirection === 'stopped') continue;
       const kind = tr.receiver.track?.kind || (tr.sender.track ? tr.sender.track.kind : null);
-      if (kind === 'audio') {
+      if (kind === 'audio' && !hasAudio) {
         hasAudio = true;
         if (tr.direction !== 'sendrecv') {
           try { tr.direction = 'sendrecv'; } catch {}
@@ -1058,7 +1061,7 @@ class NexconnService {
             await tr.sender.setParameters(params).catch(() => {});
           }
         } catch {}
-      } else if (kind === 'video') {
+      } else if (kind === 'video' && !hasVideo) {
         hasVideo = true;
         if (tr.direction !== 'sendrecv') {
           try { tr.direction = 'sendrecv'; } catch {}
@@ -1079,13 +1082,13 @@ class NexconnService {
 
     if (!hasAudio) {
       try {
-        const tr = pc.addTransceiver('audio', { direction: 'sendrecv' });
+        const tr = pc.addTransceiver('audio', { direction: 'sendrecv', streams: [broadcastStream] });
         if (liveAudio) await tr.sender.replaceTrack(liveAudio).catch(() => {});
       } catch {}
     }
     if (!hasVideo) {
       try {
-        const tr = pc.addTransceiver('video', { direction: 'sendrecv' });
+        const tr = pc.addTransceiver('video', { direction: 'sendrecv', streams: [broadcastStream] });
         if (liveVideo) await tr.sender.replaceTrack(liveVideo).catch(() => {});
       } catch {}
     }
@@ -1230,7 +1233,8 @@ class NexconnService {
         this.unlockAudio();
         const rsid: string = signal.sid || 'legacy';
         let pc = this.peers.get(fromUserId);
-        if (!pc || pc.signalingState === 'closed') {
+        const prevRsid = this.remoteSid.get(fromUserId);
+        if (!pc || pc.signalingState === 'closed' || (prevRsid && prevRsid !== rsid)) {
           pc = this.createPeerConnection(fromUserId, false);
         } else if (pc.signalingState !== 'stable') {
           await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit).catch(() => {});

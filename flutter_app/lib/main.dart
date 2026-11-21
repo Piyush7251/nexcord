@@ -134,6 +134,7 @@ class _NexcordHomeState extends State<NexcordHome> {
 
   Future<void> _afterLogin(NexcordUser user, String nexconnToken) async {
     _me = user;
+    MediaStreamService.instance.configure(api: _api, currentUserId: user.id);
     final cfg = await _api.getConfig().catchError((_) => NexconnConfig());
     _config = cfg;
     await _sdk.initializeAndConnect(token: nexconnToken, config: cfg);
@@ -188,6 +189,29 @@ class _NexcordHomeState extends State<NexcordHome> {
           _activeChannelId = first?.id ?? '';
         }
       });
+
+      final meId = _me?.id ?? '';
+      if (meId.isNotEmpty) {
+        MediaStreamService.instance.configure(api: _api, currentUserId: meId);
+
+        final liveCh = !_homeMode ? _activeChannel : null;
+        if (liveCh != null && liveCh.type == 'live' && liveCh.live != null) {
+          if (liveCh.live!.userId != meId) {
+            MediaStreamService.instance.setLiveStagePeer(liveCh.live!.userId, callId: 'live_${liveCh.id}');
+          } else {
+            await MediaStreamService.instance.startLiveStageSession(callId: 'live_${liveCh.id}', peerIds: []);
+          }
+        } else {
+          MediaStreamService.instance.setLiveStagePeer(null);
+        }
+
+        if (_voiceServerId != null && _voiceChannelId != null) {
+          final vSrv = _servers.where((s) => s.id == _voiceServerId).firstOrNull;
+          final vMembers = vSrv?.voiceStates[_voiceChannelId] ?? [];
+          final peerIds = vMembers.map((v) => v.userId).where((id) => id != meId).toList();
+          await MediaStreamService.instance.syncActivePeers(peerIds, callId: _voiceCallId ?? '');
+        }
+      }
     } catch (e) {
       if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sync error: $e')));
@@ -382,6 +406,12 @@ class _NexcordHomeState extends State<NexcordHome> {
         _deafened = false;
         _cameraOn = false;
       });
+      await MediaStreamService.instance.startVoiceSession(
+        callId: callId,
+        peerIds: others,
+        micMuted: false,
+        deafened: false,
+      );
       await _syncNow(silent: true);
     } catch (e) {
       if (mounted) {
@@ -420,8 +450,7 @@ class _NexcordHomeState extends State<NexcordHome> {
     if (_voiceServerId != null && _voiceChannelId != null) {
       await _api.leaveVoice().catchError((_) {});
     }
-    await MediaStreamService.instance.stopCamera();
-    await MediaStreamService.instance.stopScreenShare();
+    await MediaStreamService.instance.stopVoiceSession();
     setState(() {
       _voiceServerId = null;
       _voiceChannelId = null;
@@ -439,6 +468,7 @@ class _NexcordHomeState extends State<NexcordHome> {
       if (!hasMic) return;
     }
     setState(() => _micMuted = !_micMuted);
+    MediaStreamService.instance.setMicMuted(_micMuted);
     if (_voiceServerId != null) {
       await _api.updateVoiceState(muted: _micMuted).catchError((_) {});
     }
@@ -454,6 +484,7 @@ class _NexcordHomeState extends State<NexcordHome> {
 
   Future<void> _toggleVoiceDeafen() async {
     setState(() => _deafened = !_deafened);
+    MediaStreamService.instance.setDeafened(_deafened);
     if (_voiceServerId != null) {
       await _api.updateVoiceState(deafened: _deafened).catchError((_) {});
     }
@@ -515,6 +546,9 @@ class _NexcordHomeState extends State<NexcordHome> {
     } else {
       await media.stopScreenShare();
       setState(() => _screenSharing = false);
+    }
+    if (_voiceServerId != null) {
+      await _api.updateVoiceState(streaming: _screenSharing).catchError((_) {});
     }
     _sdk.logVoiceAction('ScreenShare', 'sharing=$_screenSharing');
   }
