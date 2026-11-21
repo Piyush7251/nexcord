@@ -252,7 +252,7 @@ export function App() {
           }
         }
       } catch {}
-    }, 1000);
+    }, 250);
 
     return () => clearInterval(timer);
   }, [me, callState.status, myVoice]);
@@ -357,17 +357,26 @@ export function App() {
       }
     }
 
+    const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const urlSrv = urlParams?.get('serverId');
+    const urlCh = urlParams?.get('channelId');
+
     setActiveServerId((prev) => {
+      if (urlSrv && data.servers.some((s) => s.id === urlSrv)) return urlSrv;
       if (prev && data.servers.some((s) => s.id === prev)) return prev;
       return data.servers[0]?.id || '';
     });
     setActiveChannelId((prev) => {
-      const targetSrv = data.servers.find((s) => s.id === activeServerId) || data.servers[0];
+      const targetSrv = data.servers.find((s) => s.id === (urlSrv || activeServerId)) || data.servers[0];
       if (!targetSrv) return '';
+      if (urlCh && targetSrv.channels.some((c) => c.id === urlCh)) return urlCh;
       if (prev && targetSrv.channels.some((c) => c.id === prev)) return prev;
       const squad = targetSrv.channels.find((c) => c.name === 'squad-chat-room');
       return squad?.id || targetSrv.channels.find((c) => c.type !== 'voice')?.id || targetSrv.channels[0]?.id || '';
     });
+    if (urlSrv || urlCh) {
+      setViewMode('server');
+    }
   }, [activeServerId]);
 
   const bootstrapSession = useCallback(
@@ -900,6 +909,22 @@ export function App() {
     });
     await runSync();
   };
+
+  const autoJoinDoneRef = useRef(false);
+  useEffect(() => {
+    if (!me || autoJoinDoneRef.current || myVoice) return;
+    const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    if (urlParams?.get('autoJoin') === '1') {
+      const srvId = urlParams.get('serverId');
+      const chId = urlParams.get('channelId');
+      const targetSrv = servers.find((s) => s.id === srvId);
+      const targetCh = targetSrv?.channels.find((c) => c.id === chId);
+      if (targetSrv && targetCh) {
+        autoJoinDoneRef.current = true;
+        joinVoiceChannel(targetSrv, targetCh).catch(() => {});
+      }
+    }
+  }, [me, servers, myVoice]);
 
   const startDirectCall = async (userId: string, video: boolean) => {
     nexconn.unlockAudio();
@@ -1861,6 +1886,7 @@ export function App() {
             {/* Case C: Voice / Video Call Stage */}
             {isViewingVoiceStage && (
               <VoiceCallStage
+                serverId={viewMode === 'server' && activeServer ? activeServer.id : undefined}
                 channel={viewMode === 'server' ? activeChannel : null}
                 voiceParticipants={
                   viewMode === 'server' && activeServer && activeChannel

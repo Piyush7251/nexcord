@@ -16,10 +16,12 @@ import {
 } from 'lucide-react';
 import type { CallSessionState, Channel, User, VoiceParticipant } from '../types';
 import { nexconn } from '../services/nexconn';
+import { api } from '../services/api';
 import { Avatar } from './Avatar';
 import { SOUNDS, playSoundEffect } from '../services/soundboard';
 
 interface VoiceCallStageProps {
+  serverId?: string;
   channel?: Channel | null;
   voiceParticipants?: VoiceParticipant[];
   callState: CallSessionState;
@@ -283,6 +285,7 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
 };
 
 export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
+  serverId,
   channel,
   voiceParticipants = [],
   callState,
@@ -506,6 +509,30 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
               )}
             </div>
           )}
+
+          {/* Quick Launch Test Peer in isolated second window */}
+          <button
+            type="button"
+            className="nc-btn xs secondary"
+            onClick={async () => {
+              try {
+                const res = await api.demoLogin();
+                if (res?.session) {
+                  const srvId = serverId || '';
+                  const chId = channel?.id || '';
+                  const url = `${window.location.origin}${window.location.pathname}?session=${encodeURIComponent(res.session)}${srvId ? `&serverId=${encodeURIComponent(srvId)}` : ''}${chId ? `&channelId=${encodeURIComponent(chId)}&autoJoin=1` : ''}`;
+                  window.open(url, '_blank', 'width=520,height=820,left=80,top=80');
+                }
+              } catch {
+                window.alert('Failed to launch test window');
+              }
+            }}
+            title="Open an isolated 2nd window with a separate player ID to test voice/video instantly without logging out"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#57F287' }}
+          >
+            <UserPlus size={14} />
+            <span className="desktop-only">+ Test Player</span>
+          </button>
 
           <button
             type="button"

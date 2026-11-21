@@ -81,13 +81,16 @@ class NexconnService {
   private iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:global.stun.twilio.com:3478' },
-    { urls: 'stun:stun.services.mozilla.com' },
-    { urls: 'stun:stun.nextcloud.com:443' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ];
 
   setCurrentUser(userId: string) {
@@ -830,6 +833,27 @@ class NexconnService {
   private lastHelloAt: Map<string, number> = new Map();
   private offerInFlight: Set<string> = new Set();
   private signalChains: Map<string, Promise<void>> = new Map();
+  private candidateQueue: Map<string, any[]> = new Map();
+  private candidateTimer: Map<string, any> = new Map();
+
+  private queueCandidate(to: string, cand: any, sid: string) {
+    if (!this.candidateQueue.has(to)) this.candidateQueue.set(to, []);
+    this.candidateQueue.get(to)!.push(cand);
+
+    if (!this.candidateTimer.has(to)) {
+      this.candidateTimer.set(
+        to,
+        setTimeout(() => {
+          this.candidateTimer.delete(to);
+          const queued = this.candidateQueue.get(to) || [];
+          this.candidateQueue.delete(to);
+          if (queued.length > 0) {
+            this.sendSignal(to, { type: 'candidates', candidates: queued, sid });
+          }
+        }, 40)
+      );
+    }
+  }
 
   private newSid(): string {
     return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -966,11 +990,8 @@ class NexconnService {
 
     pc.onicecandidate = (event) => {
       if (!event.candidate || this.peers.get(remoteUserId) !== pc) return;
-      this.sendSignal(remoteUserId, {
-        type: 'candidate',
-        candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
-        sid,
-      });
+      const cand = event.candidate.toJSON ? event.candidate.toJSON() : event.candidate;
+      this.queueCandidate(remoteUserId, cand, sid);
     };
 
     return pc;
@@ -1218,20 +1239,28 @@ class NexconnService {
         return;
       }
 
-      if (signal.type === 'candidate' && signal.candidate) {
-        const candInit: RTCIceCandidateInit =
-          typeof signal.candidate === 'object' ? signal.candidate : { candidate: String(signal.candidate) };
+      if (signal.type === 'candidate' || signal.type === 'candidates') {
+        const rawList = signal.type === 'candidates' && Array.isArray(signal.candidates)
+          ? signal.candidates
+          : signal.candidate ? [signal.candidate] : [];
         const rsid: string = signal.sid || this.remoteSid.get(fromUserId) || 'legacy';
         const pc = this.peers.get(fromUserId);
-        if (pc && pc.signalingState !== 'closed' && pc.remoteDescription) {
-          await pc.addIceCandidate(new RTCIceCandidate(candInit)).catch(() => {});
-        } else {
-          const key = `${fromUserId}:${rsid}`;
-          const queued = this.pendingCandidates.get(key) || [];
-          queued.push(candInit);
-          if (queued.length > 60) queued.shift();
-          this.pendingCandidates.set(key, queued);
+
+        for (const raw of rawList) {
+          if (!raw) continue;
+          const candInit: RTCIceCandidateInit =
+            typeof raw === 'object' ? raw : { candidate: String(raw) };
+          if (pc && pc.signalingState !== 'closed' && pc.remoteDescription) {
+            await pc.addIceCandidate(new RTCIceCandidate(candInit)).catch(() => {});
+          } else {
+            const key = `${fromUserId}:${rsid}`;
+            const queued = this.pendingCandidates.get(key) || [];
+            queued.push(candInit);
+            if (queued.length > 60) queued.shift();
+            this.pendingCandidates.set(key, queued);
+          }
         }
+        return;
       }
     } catch (err: any) {
       this.log('call', 'WebRTC.signalError', err?.message || 'Signal handling failed', 'warn');

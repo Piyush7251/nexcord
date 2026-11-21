@@ -20,7 +20,12 @@ export function setApiBase(url: string): void {
   else localStorage.setItem('nexcord_api_base', clean);
 }
 
-let sessionToken = localStorage.getItem('nexcord_session') || '';
+let sessionToken =
+  (typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('session') ||
+      sessionStorage.getItem('nexcord_session') ||
+      localStorage.getItem('nexcord_session')
+    : '') || '';
 
 export function getSessionToken(): string {
   return sessionToken;
@@ -28,8 +33,18 @@ export function getSessionToken(): string {
 
 export function setSessionToken(tok: string): void {
   sessionToken = tok;
-  if (tok) localStorage.setItem('nexcord_session', tok);
-  else localStorage.removeItem('nexcord_session');
+  if (typeof window !== 'undefined') {
+    if (tok) {
+      sessionStorage.setItem('nexcord_session', tok);
+      // If not on an explicitly isolated session URL, also update localStorage
+      if (!new URLSearchParams(window.location.search).get('session')) {
+        localStorage.setItem('nexcord_session', tok);
+      }
+    } else {
+      sessionStorage.removeItem('nexcord_session');
+      localStorage.removeItem('nexcord_session');
+    }
+  }
 }
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {

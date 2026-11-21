@@ -86,7 +86,12 @@ function publicUser(u) {
 function notify(userIds, event = 'sync', payload = {}) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
   for (const uid of new Set(userIds)) {
-    for (const res of streams.get(uid) || []) res.write(msg);
+    for (const res of streams.get(uid) || []) {
+      try {
+        res.write(msg);
+        if (typeof res.flush === 'function') res.flush();
+      } catch {}
+    }
   }
 }
 const serverMemberIds = (s) => s.members.map((m) => m.userId);
@@ -201,12 +206,22 @@ app.get('/api/webrtc/config', auth, (req, res) => {
   const turnCredential = String(settings.customTurnCredential || process.env.WEBRTC_TURN_CREDENTIAL || '').trim();
   const iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ];
   if (turnUrl && turnUsername && turnCredential) {
     iceServers.push({ urls: turnUrl.split(',').map((url) => url.trim()).filter(Boolean), username: turnUsername, credential: turnCredential });
   }
-  res.json({ iceServers, turnConfigured: iceServers.length > 2 });
+  res.json({ iceServers, turnConfigured: true });
 });
 
 app.post('/api/config/credentials', wrap(async (req, res) => {
