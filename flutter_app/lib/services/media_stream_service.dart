@@ -2,9 +2,32 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'api_service.dart';
+
+const MethodChannel _screenServiceChannel = MethodChannel('ai.nexconn.nexcord/media_projection_service');
+
+Future<void> _startNativeScreenService() async {
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await _screenServiceChannel.invokeMethod('startService');
+    } catch (e) {
+      debugPrint('[MediaStreamService] Failed to start native MediaProjectionService: $e');
+    }
+  }
+}
+
+Future<void> _stopNativeScreenService() async {
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await _screenServiceChannel.invokeMethod('stopService');
+    } catch (e) {
+      debugPrint('[MediaStreamService] Failed to stop native MediaProjectionService: $e');
+    }
+  }
+}
 
 class MediaStreamService extends ChangeNotifier {
   static final MediaStreamService instance = MediaStreamService._();
@@ -336,6 +359,9 @@ class MediaStreamService extends ChangeNotifier {
         } catch (e) {
           debugPrint('[MediaStreamService] Helper.requestCapturePermission: $e');
         }
+
+        // Start native foreground service with type mediaProjection required by Android 14+
+        await _startNativeScreenService();
       }
 
       if (_screenRenderer == null) {
@@ -383,6 +409,7 @@ class MediaStreamService extends ChangeNotifier {
       return true;
     } catch (e) {
       debugPrint('[MediaStreamService] startScreenShare failed: $e');
+      await _stopNativeScreenService();
       _screenShareError = 'Screen share cancelled or failed: $e';
       _isScreenSharing = false;
       _isScreenInitializing = false;
@@ -392,6 +419,7 @@ class MediaStreamService extends ChangeNotifier {
   }
 
   Future<void> stopScreenShare() async {
+    await _stopNativeScreenService();
     if (!_isScreenSharing && _screenStream == null) return;
     final oldStream = _screenStream;
     _screenStream = null;
