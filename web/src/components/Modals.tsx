@@ -1045,11 +1045,9 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   const [status, setStatus] = useState<UserStatus>(me.status);
   const [customStatus, setCustomStatus] = useState(me.customStatus || '');
   const [about, setAbout] = useState(me.about || '');
-  const [apiBase, setApiBaseVal] = useState(getApiBase());
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setApiBase(apiBase);
     await onUpdateMe({ displayName, avatarColor, bannerColor: avatarColor, status, customStatus, about });
     onClose();
   };
@@ -1115,11 +1113,6 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
           <label className="nc-field">
             <span>ABOUT ME</span>
             <input value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Bio / main agents / roles" />
-          </label>
-
-          <label className="nc-field">
-            <span>API BACKEND URL (BLANK = SAME ORIGIN)</span>
-            <input value={apiBase} onChange={(e) => setApiBaseVal(e.target.value)} placeholder="http://localhost:3001" />
           </label>
 
           <div className="nc-modal-actions spread">
