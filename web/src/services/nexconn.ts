@@ -83,22 +83,9 @@ class NexconnService {
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
+    { urls: 'stun:global.stun.twilio.com:3478' },
   ];
 
   setCurrentUser(userId: string) {
@@ -836,6 +823,20 @@ class NexconnService {
         this.remoteStreams.set(remoteUserId, remoteStream);
       }
 
+      if (event.track.kind === 'video') {
+        remoteStream.getVideoTracks().forEach((t) => {
+          if (t.id !== event.track.id) {
+            remoteStream!.removeTrack(t);
+          }
+        });
+      } else if (event.track.kind === 'audio') {
+        remoteStream.getAudioTracks().forEach((t) => {
+          if (t.id !== event.track.id) {
+            remoteStream!.removeTrack(t);
+          }
+        });
+      }
+
       if (!remoteStream.getTracks().some((t) => t.id === event.track.id)) {
         remoteStream.addTrack(event.track);
       }
@@ -912,6 +913,7 @@ class NexconnService {
       if (videoTransceiver) {
         if (videoTransceiver.sender.track !== liveVideo) {
           await videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
+          needsRenegotiation = true;
         }
       } else if (liveVideo) {
         try {
@@ -1033,8 +1035,8 @@ class NexconnService {
       this.unlockAudio();
       let pc = this.peers.get(fromUserId);
       if (!pc || pc.signalingState === 'closed') {
-        await this.ensureLocalMedia(true, false);
         pc = this.createPeerConnection(fromUserId, callId);
+        this.ensureLocalMedia(true, false).catch(() => {});
       }
 
       const drainCandidates = async () => {
@@ -1090,7 +1092,7 @@ class NexconnService {
         const candInit = (typeof signal.candidate === 'object' && signal.candidate !== null)
           ? signal.candidate
           : { candidate: signal.candidate };
-        if (!pc.remoteDescription || !pc.remoteDescription.type) {
+        if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
           const queued = this.pendingCandidates.get(fromUserId) || [];
           queued.push(candInit);
           this.pendingCandidates.set(fromUserId, queued);
@@ -1161,50 +1163,36 @@ class NexconnService {
       let stream: MediaStream | null = null;
       const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-      if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
+      if (navigator.mediaDevices && typeof (navigator.mediaDevices as any).getDisplayMedia === 'function') {
         try {
           if (isMobile) {
-            try {
-              // Mobile Android Chrome works best with clean video: true
-              stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-            } catch {
-              stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-              });
-            }
+            stream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true });
           } else {
             try {
-              stream = await navigator.mediaDevices.getDisplayMedia({
+              stream = await (navigator.mediaDevices as any).getDisplayMedia({
                 video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } },
                 audio: true,
               });
             } catch {
-              stream = await navigator.mediaDevices.getDisplayMedia({
+              stream = await (navigator.mediaDevices as any).getDisplayMedia({
                 video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } },
               });
             }
           }
-        } catch (displayErr) {
-          console.warn('Native getDisplayMedia rejected or unsupported on this device', displayErr);
-          if (isMobile) {
-            try {
-              // In WebView / in-app browsers where screen casting is locked by OS: fall back to back camera
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-              });
-            } catch (camErr) {
-              console.warn('Mobile camera fallback failed', camErr);
-            }
-          }
+        } catch (displayErr: any) {
+          console.warn('Native getDisplayMedia error:', displayErr);
+          throw new Error(
+            isMobile
+              ? 'Screen sharing is restricted by your mobile browser. Use a desktop browser or the native Nexcord APK to share your screen.'
+              : 'Screen sharing permission was canceled or denied.'
+          );
         }
-      } else if (isMobile) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          });
-        } catch (camErr) {
-          console.warn('Mobile camera fallback failed', camErr);
-        }
+      } else {
+        throw new Error(
+          isMobile
+            ? 'Screen sharing is not supported by mobile web browsers on iOS/Android. Please use a laptop or desktop browser to share your screen.'
+            : 'Screen sharing is not supported in this browser.'
+        );
       }
 
       if (stream) {
@@ -1223,7 +1211,7 @@ class NexconnService {
       return null;
     } catch (e: any) {
       this.log('call', 'ScreenShare.denied', e?.message || 'Permission dismissed', 'warn');
-      return null;
+      throw e;
     }
   }
 
@@ -1238,69 +1226,82 @@ class NexconnService {
       }
 
       if (this.localStream && hasAudio && video && !hasVideo) {
-        const vStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        });
-        vStream.getVideoTracks().forEach((vt) => this.localStream!.addTrack(vt));
-        await this.syncTracksToPeers(true);
+        let vStream: MediaStream | null = null;
+        try {
+          vStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'user' } },
+          });
+        } catch {
+          try {
+            vStream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: { ideal: 'user' } },
+            });
+          } catch {
+            vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          }
+        }
+        if (vStream) {
+          vStream.getVideoTracks().forEach((vt) => this.localStream!.addTrack(vt));
+          await this.syncTracksToPeers(true);
+        }
         return this.localStream;
       }
 
       if (this.localStream && hasVideo && audio && !hasAudio) {
-        const aStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-        aStream.getAudioTracks().forEach((at) => this.localStream!.addTrack(at));
-        await this.syncTracksToPeers(true);
+        let aStream: MediaStream | null = null;
+        try {
+          aStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          });
+        } catch {
+          aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+        if (aStream) {
+          aStream.getAudioTracks().forEach((at) => this.localStream!.addTrack(at));
+          await this.syncTracksToPeers(true);
+        }
         return this.localStream;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audio
-          ? {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            }
-          : false,
-        video: video
-          ? {
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              facingMode: 'user',
-            }
-          : false,
-      });
-
-      if (this.localStream) {
-        this.localStream.getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch {}
+      // Fresh stream request with progressive fallbacks for mobile browsers
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: audio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
+          video: video ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'user' } } : false,
         });
-      }
-      this.localStream = stream;
-      await this.syncTracksToPeers();
-      return stream;
-    } catch (err: any) {
-      console.warn('[VoiceChat] getUserMedia error:', err);
-      if (audio && !video) {
+      } catch {
         try {
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (this.localStream) {
-            this.localStream.getTracks().forEach((t) => {
-              try {
-                t.stop();
-              } catch {}
-            });
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: audio ? true : false,
+            video: video ? { facingMode: { ideal: 'user' } } : false,
+          });
+        } catch {
+          if (audio) {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (err3) {
+              console.warn('[VoiceChat] getUserMedia fallback to audio-only failed:', err3);
+            }
           }
-          this.localStream = fallbackStream;
-          await this.syncTracksToPeers(false);
-          return fallbackStream;
-        } catch (fbErr) {
-          console.warn('[VoiceChat] Fallback getUserMedia error:', fbErr);
         }
       }
+
+      if (stream) {
+        if (this.localStream) {
+          this.localStream.getTracks().forEach((t) => {
+            try {
+              t.stop();
+            } catch {}
+          });
+        }
+        this.localStream = stream;
+        await this.syncTracksToPeers();
+        return stream;
+      }
+      return null;
+    } catch (err: any) {
+      console.warn('[VoiceChat] getUserMedia error:', err);
       return null;
     }
   }

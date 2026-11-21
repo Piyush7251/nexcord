@@ -442,9 +442,13 @@ export function App() {
     };
     window.addEventListener('click', handleFirstInteraction, { passive: true });
     window.addEventListener('touchstart', handleFirstInteraction, { passive: true });
+    window.addEventListener('touchend', handleFirstInteraction, { passive: true });
+    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true });
     return () => {
       window.removeEventListener('click', handleFirstInteraction);
       window.removeEventListener('touchstart', handleFirstInteraction);
+      window.removeEventListener('touchend', handleFirstInteraction);
+      window.removeEventListener('pointerdown', handleFirstInteraction);
     };
   }, []);
 
@@ -862,7 +866,12 @@ export function App() {
     nexconn.unlockAudio();
     const media = await nexconn.ensureLocalMedia(true, false);
     if (!media?.getAudioTracks().some((track) => track.readyState === 'live')) {
-      window.alert('Microphone access is required to join voice. Check this site’s microphone permission and try again.');
+      const isSecure = typeof window !== 'undefined' ? window.isSecureContext : true;
+      if (!isSecure) {
+        window.alert('Microphone access requires a secure HTTPS connection on mobile browsers. Please open https://nexcord-a85i.onrender.com to use voice and video.');
+      } else {
+        window.alert('Microphone access is required to join voice. Check this site’s microphone permission in your mobile browser settings and try again.');
+      }
       return;
     }
     const res = await api.joinVoice(srv.id, ch.id);
@@ -904,7 +913,12 @@ export function App() {
     nexconn.unlockAudio();
     const media = await nexconn.ensureLocalMedia(true, video);
     if (!media?.getAudioTracks().some((track) => track.readyState === 'live')) {
-      window.alert('Microphone access is required to start a call. Check this site’s microphone permission and try again.');
+      const isSecure = typeof window !== 'undefined' ? window.isSecureContext : true;
+      if (!isSecure) {
+        window.alert('Voice & Video require a secure HTTPS connection on mobile browsers. Please open https://nexcord-a85i.onrender.com.');
+      } else {
+        window.alert('Microphone access is required to start a call. Check this site’s microphone permission in your mobile browser settings and try again.');
+      }
       return;
     }
     const u = users[userId];
@@ -964,10 +978,20 @@ export function App() {
 
   const toggleScreenShare = async () => {
     const nextShare = !callState.screenSharing;
-    const stream = await nexconn.toggleScreenShare(nextShare);
-    const active = nextShare && !!stream;
-    setCallState((prev) => ({ ...prev, screenSharing: active }));
-    if (myVoice) await api.updateVoiceState({ streaming: active }).catch(() => {});
+    if (!nextShare) {
+      await nexconn.toggleScreenShare(false).catch(() => {});
+      setCallState((prev) => ({ ...prev, screenSharing: false }));
+      if (myVoice) await api.updateVoiceState({ streaming: false }).catch(() => {});
+      return;
+    }
+    try {
+      const stream = await nexconn.toggleScreenShare(true);
+      const active = !!stream;
+      setCallState((prev) => ({ ...prev, screenSharing: active }));
+      if (myVoice) await api.updateVoiceState({ streaming: active }).catch(() => {});
+    } catch (err: any) {
+      window.alert(err?.message || 'Screen sharing is not supported or was canceled on this device.');
+    }
   };
 
   // ---------------------------------------------------------------- Render Guards

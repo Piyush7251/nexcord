@@ -75,14 +75,18 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
         nexconn.bindRemoteVideo(uid, el);
 
         const checkPlaying = () => {
-          if (el.videoWidth > 0 && !el.paused) {
+          if (el.videoWidth > 0) {
             setHasLiveFrames(true);
+            if (el.paused) el.play().catch(() => {});
+          } else if (el.srcObject && el.paused) {
+            el.play().catch(() => {});
           }
         };
 
         checkPlaying();
         el.addEventListener('loadeddata', checkPlaying);
         el.addEventListener('playing', checkPlaying);
+        el.addEventListener('canplay', checkPlaying);
         el.addEventListener('resize', checkPlaying);
         const poll = setInterval(checkPlaying, 500);
 
@@ -90,6 +94,7 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
           clearInterval(poll);
           el.removeEventListener('loadeddata', checkPlaying);
           el.removeEventListener('playing', checkPlaying);
+          el.removeEventListener('canplay', checkPlaying);
           el.removeEventListener('resize', checkPlaying);
         };
       } else {
@@ -110,12 +115,25 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
         const el = videoRef.current;
         if (el && el.paused) el.play().catch(() => {});
       }}
+      onTouchStart={() => {
+        nexconn.unlockAudio();
+        const el = videoRef.current;
+        if (el && el.paused) el.play().catch(() => {});
+      }}
     >
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={true}
+        onLoadedMetadata={(e) => {
+          const v = e.currentTarget;
+          if (v.paused) v.play().catch(() => {});
+        }}
+        onCanPlay={(e) => {
+          const v = e.currentTarget;
+          if (v.paused) v.play().catch(() => {});
+        }}
         className="nc-voice-video"
         style={{
           position: 'absolute',
