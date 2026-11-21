@@ -21,7 +21,6 @@ import { SOUNDS, playSoundEffect } from '../services/soundboard';
 
 interface VoiceCallStageProps {
   channel?: Channel | null;
-  serverId?: string | null;
   voiceParticipants?: VoiceParticipant[];
   callState: CallSessionState;
   me: User;
@@ -41,199 +40,6 @@ interface VoiceTileProps {
   vp?: VoiceParticipant;
   callState: CallSessionState;
 }
-
-function loadJitsiExternalApi(): Promise<any> {
-  if (typeof window !== 'undefined' && (window as any).JitsiMeetExternalAPI) {
-    return Promise.resolve((window as any).JitsiMeetExternalAPI);
-  }
-  return new Promise((resolve, reject) => {
-    const existing = document.getElementById('jitsi-external-api-script');
-    if (existing) {
-      existing.addEventListener('load', () => resolve((window as any).JitsiMeetExternalAPI));
-      existing.addEventListener('error', reject);
-      return;
-    }
-    const script = document.createElement('script');
-    script.id = 'jitsi-external-api-script';
-    script.src = 'https://meet.jit.si/external_api.js';
-    script.async = true;
-    script.onload = () => resolve((window as any).JitsiMeetExternalAPI);
-    script.onerror = (e) => reject(e);
-    document.head.appendChild(script);
-  });
-}
-
-interface JitsiStageProps {
-  channel?: Channel | null;
-  serverId?: string | null;
-  callState: CallSessionState;
-  me: User;
-  onHangup: () => void;
-}
-
-const JitsiStage: React.FC<JitsiStageProps> = ({
-  channel,
-  serverId,
-  callState,
-  me,
-  onHangup,
-}) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const jitsiApiRef = useRef<any>(null);
-
-  const cleanId = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const roomName = useMemo(() => {
-    if (channel) {
-      const srvPart = cleanId(serverId || 'srv');
-      const chPart = cleanId(channel.id || 'voice');
-      return `nexcord_${srvPart}_${chPart}`;
-    }
-    const targetPart = cleanId(callState.targetLabel || callState.callId || 'call');
-    return `nexcord_${targetPart}`;
-  }, [channel, serverId, callState.targetLabel, callState.callId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    // Free local audio/video hardware so Jitsi has 100% exclusive access
-    nexconn.stopMediaTracks();
-
-    loadJitsiExternalApi()
-      .then((JitsiMeetExternalAPI) => {
-        if (cancelled || !containerRef.current) return;
-        setLoading(false);
-
-        try {
-          const api = new JitsiMeetExternalAPI('meet.jit.si', {
-            roomName,
-            parentNode: containerRef.current,
-            width: '100%',
-            height: '100%',
-            userInfo: {
-              displayName: me.displayName || me.username || 'Squad Player',
-              avatarURL: me.avatarUrl || undefined,
-            },
-            configOverwrite: {
-              startWithAudioMuted: false,
-              startWithVideoMuted: true,
-              prejoinPageEnabled: false,
-              prejoinConfig: { enabled: false },
-              disableDeepLinking: true,
-              enableWelcomePage: false,
-              enableClosePage: false,
-              enableNoisyMicDetection: false,
-              disableInviteFunctions: true,
-              toolbarButtons: [
-                'microphone',
-                'camera',
-                'desktop',
-                'tileview',
-                'fullscreen',
-                'hangup',
-                'toggle-camera',
-                'videoquality',
-              ],
-            },
-            interfaceConfigOverwrite: {
-              SHOW_JITSI_WATERMARK: false,
-              SHOW_WATERMARK_FOR_GUESTS: false,
-              SHOW_BRAND_WATERMARK: false,
-              SHOW_POWERED_BY: false,
-              TOOLBAR_ALWAYS_VISIBLE: true,
-              DEFAULT_REMOTE_DISPLAY_NAME: 'Squad Member',
-            },
-          });
-
-          jitsiApiRef.current = api;
-
-          api.addEventListener('videoConferenceLeft', () => {
-            onHangup();
-          });
-          api.addEventListener('readyToClose', () => {
-            onHangup();
-          });
-        } catch (err: any) {
-          console.error('Failed to init Jitsi API:', err);
-          setLoadError(err?.message || 'Failed to initialize video relay');
-        }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setLoading(false);
-        setLoadError(err?.message || 'Failed to load video engine');
-      });
-
-    return () => {
-      cancelled = true;
-      if (jitsiApiRef.current) {
-        try {
-          jitsiApiRef.current.dispose();
-        } catch {}
-        jitsiApiRef.current = null;
-      }
-    };
-  }, [roomName, me.displayName, me.username, me.avatarUrl, onHangup]);
-
-  return (
-    <div className="nc-jitsi-wrapper">
-      {loading && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            background: '#0d0e12',
-            zIndex: 10,
-            color: '#dbdee1',
-          }}
-        >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              border: '3px solid rgba(88, 101, 242, 0.2)',
-              borderTopColor: '#5865F2',
-              animation: 'spin 0.8s linear infinite',
-            }}
-          />
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Connecting to Global SFU Relay...</span>
-          <span style={{ fontSize: 11, color: '#949ba4' }}>Room: {roomName}</span>
-        </div>
-      )}
-      {loadError && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            background: '#0d0e12',
-            zIndex: 10,
-            color: '#ED4245',
-            padding: 20,
-            textAlign: 'center',
-          }}
-        >
-          <p style={{ fontWeight: 600 }}>Relay Notice: {loadError}</p>
-          <span style={{ fontSize: 12, color: '#949ba4' }}>
-            Switch to "Native Mesh" mode above to continue calling directly over P2P.
-          </span>
-        </div>
-      )}
-      <div ref={containerRef} className="nc-jitsi-container" />
-    </div>
-  );
-};
 
 const VoiceTile: React.FC<VoiceTileProps> = ({
   uid,
@@ -415,7 +221,6 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
 
 export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   channel,
-  serverId,
   voiceParticipants = [],
   callState,
   me,
@@ -429,26 +234,6 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
 }) => {
   const [showInvite, setShowInvite] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
-
-  const [engineMode, setEngineMode] = useState<'sfu' | 'mesh'>(() => {
-    try {
-      const saved = localStorage.getItem('nc_voice_engine');
-      if (saved === 'sfu' || saved === 'mesh') return saved;
-    } catch {}
-    return 'sfu';
-  });
-
-  const handleSwitchEngine = (mode: 'sfu' | 'mesh') => {
-    setEngineMode(mode);
-    try {
-      localStorage.setItem('nc_voice_engine', mode);
-    } catch {}
-    if (mode === 'mesh') {
-      nexconn.ensureLocalMedia(true, false).catch(() => {});
-    } else {
-      nexconn.stopMediaTracks();
-    }
-  };
 
   const participantIds = useMemo(
     () =>
@@ -483,39 +268,18 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
           <span className="nc-voice-title-text">
             {channel ? `Voice Connected — ${channel.name}` : `Call — ${callState.targetLabel || 'Direct Call'}`}
           </span>
-
-          {/* Engine Mode Toggle */}
-          <div className="nc-voice-engine-toggle" title="Switch voice & video relay engine">
-            <button
-              type="button"
-              className={`nc-voice-engine-btn ${engineMode === 'sfu' ? 'sfu-active' : ''}`}
-              onClick={() => handleSwitchEngine('sfu')}
-              title="Global SFU Relay — 100% reliable on 4G/5G mobile, zero NAT drops, no audio cutting"
-            >
-              <span>⚡ Global SFU</span>
-            </button>
-            <button
-              type="button"
-              className={`nc-voice-engine-btn ${engineMode === 'mesh' ? 'active' : ''}`}
-              onClick={() => handleSwitchEngine('mesh')}
-              title="Native Discord Mesh — Direct WebRTC P2P"
-            >
-              <span>🎮 Native Mesh</span>
-            </button>
-          </div>
-
           <span
             role="status"
             style={{
               fontSize: 11,
-              color: engineMode === 'sfu' ? '#57F287' : (connectedPeers === peerStates.length && peerStates.length > 0 ? '#57F287' : '#F0B232'),
-              background: engineMode === 'sfu' ? 'rgba(87,242,135,0.12)' : (connectedPeers === peerStates.length && peerStates.length > 0 ? 'rgba(87,242,135,0.12)' : 'rgba(240,178,50,0.12)'),
+              color: connectedPeers === peerStates.length && peerStates.length > 0 ? '#57F287' : '#F0B232',
+              background: connectedPeers === peerStates.length && peerStates.length > 0 ? 'rgba(87,242,135,0.12)' : 'rgba(240,178,50,0.12)',
               padding: '2px 8px',
               borderRadius: 10,
               fontWeight: 600,
             }}
           >
-            {engineMode === 'sfu' ? '● SFU Relay Active' : peerStatus}
+            {peerStatus}
           </span>
         </div>
 
@@ -650,82 +414,70 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
         </div>
       </div>
 
-      {engineMode === 'sfu' ? (
-        <JitsiStage
-          channel={channel}
-          serverId={serverId}
-          callState={callState}
-          me={me}
-          onHangup={onHangup}
-        />
-      ) : (
-        <>
-          <div className="nc-voice-grid">
-            {participantIds.map((uid) => {
-              const isMe = uid === me.id;
-              const u = isMe ? me : users[uid];
-              const vp = voiceParticipants.find((v) => v.userId === uid);
-              return (
-                <VoiceTile
-                  key={uid}
-                  uid={uid}
-                  isMe={isMe}
-                  u={u}
-                  vp={vp}
-                  callState={callState}
-                />
-              );
-            })}
-          </div>
+      <div className="nc-voice-grid">
+        {participantIds.map((uid) => {
+          const isMe = uid === me.id;
+          const u = isMe ? me : users[uid];
+          const vp = voiceParticipants.find((v) => v.userId === uid);
+          return (
+            <VoiceTile
+              key={uid}
+              uid={uid}
+              isMe={isMe}
+              u={u}
+              vp={vp}
+              callState={callState}
+            />
+          );
+        })}
+      </div>
 
-          <div className="nc-voice-dock">
-            <button
-              type="button"
-              className={`nc-dock-btn ${callState.micMuted ? 'off' : ''}`}
-              onClick={onToggleMic}
-              title={callState.micMuted ? 'Unmute Microphone' : 'Mute Microphone'}
-            >
-              {callState.micMuted ? <MicOff size={20} /> : <Mic size={20} />}
-            </button>
+      <div className="nc-voice-dock">
+        <button
+          type="button"
+          className={`nc-dock-btn ${callState.micMuted ? 'off' : ''}`}
+          onClick={onToggleMic}
+          title={callState.micMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+        >
+          {callState.micMuted ? <MicOff size={20} /> : <Mic size={20} />}
+        </button>
 
-            <button
-              type="button"
-              className={`nc-dock-btn ${callState.deafened ? 'off' : ''}`}
-              onClick={onToggleDeafen}
-              title={callState.deafened ? 'Undeafen' : 'Deafen'}
-            >
-              {callState.deafened ? <VolumeX size={20} /> : <Headphones size={20} />}
-            </button>
+        <button
+          type="button"
+          className={`nc-dock-btn ${callState.deafened ? 'off' : ''}`}
+          onClick={onToggleDeafen}
+          title={callState.deafened ? 'Undeafen' : 'Deafen'}
+        >
+          {callState.deafened ? <VolumeX size={20} /> : <Headphones size={20} />}
+        </button>
 
-            <button
-              type="button"
-              className={`nc-dock-btn ${callState.cameraEnabled ? 'active' : ''}`}
-              onClick={onToggleCamera}
-              title={callState.cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
-            >
-              {callState.cameraEnabled ? <Video size={20} /> : <VideoOff size={20} />}
-            </button>
+        <button
+          type="button"
+          className={`nc-dock-btn ${callState.cameraEnabled ? 'active' : ''}`}
+          onClick={onToggleCamera}
+          title={callState.cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
+        >
+          {callState.cameraEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+        </button>
 
-            <button
-              type="button"
-              className={`nc-dock-btn ${callState.screenSharing ? 'active' : ''}`}
-              onClick={onToggleScreenShare}
-              title="Share Screen"
-            >
-              <MonitorUp size={20} />
-            </button>
+        <button
+          type="button"
+          className={`nc-dock-btn ${callState.screenSharing ? 'active' : ''}`}
+          onClick={onToggleScreenShare}
+          title="Share Screen"
+        >
+          <MonitorUp size={20} />
+        </button>
 
-            <button
-              type="button"
-              className="nc-dock-btn hangup"
-              onClick={onHangup}
-              title="Disconnect Call"
-            >
-              <PhoneOff size={20} />
-            </button>
-          </div>
-        </>
-      )}
+        <button
+          type="button"
+          className="nc-dock-btn hangup"
+          onClick={onHangup}
+          title="Disconnect Call"
+        >
+          <PhoneOff size={20} />
+        </button>
+      </div>
     </div>
   );
 };

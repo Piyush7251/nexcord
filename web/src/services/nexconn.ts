@@ -86,6 +86,8 @@ class NexconnService {
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com' },
+    { urls: 'stun:stun.nextcloud.com:443' },
   ];
 
   setCurrentUser(userId: string) {
@@ -950,7 +952,6 @@ class NexconnService {
       if (videoTransceiver) {
         if (videoTransceiver.sender.track !== liveVideo) {
           await videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
-          needsRenegotiation = true;
         }
       } else if (liveVideo) {
         try {
