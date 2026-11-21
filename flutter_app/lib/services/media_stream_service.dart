@@ -315,8 +315,27 @@ class MediaStreamService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (await Permission.notification.isDenied) {
-        await Permission.notification.request();
+      if (WebRTC.platformIsAndroid) {
+        // Notification permission is needed for Android foreground service during screen share
+        try {
+          if (await Permission.notification.isDenied) {
+            await Permission.notification.request();
+          }
+        } catch (_) {}
+
+        // Request capture permission via Helper for Android MediaProjection dialog
+        try {
+          final granted = await Helper.requestCapturePermission();
+          if (!granted) {
+            _screenShareError = 'Screen capture was cancelled or denied.';
+            _isScreenSharing = false;
+            _isScreenInitializing = false;
+            notifyListeners();
+            return false;
+          }
+        } catch (e) {
+          debugPrint('[MediaStreamService] Helper.requestCapturePermission: $e');
+        }
       }
 
       if (_screenRenderer == null) {
@@ -324,13 +343,28 @@ class MediaStreamService extends ChangeNotifier {
         await _screenRenderer!.initialize();
       }
 
-      final stream = await navigator.mediaDevices.getDisplayMedia({
-        'video': {
-          'cursor': 'always',
-          'frameRate': 24,
-        },
-        'audio': false,
-      });
+      MediaStream stream;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          'video': true,
+          'audio': false,
+        });
+      } catch (err) {
+        debugPrint('[MediaStreamService] getDisplayMedia boolean failed: $err, trying map fallback');
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          'video': {
+            'width': {'ideal': 1280},
+            'height': {'ideal': 720},
+            'frameRate': {'ideal': 24},
+          },
+          'audio': false,
+        });
+      }
+
+      // If camera is currently active, stop camera to prioritize screen share
+      if (_isCameraActive) {
+        await stopCamera();
+      }
 
       _screenStream = stream;
       _screenRenderer!.srcObject = stream;
@@ -338,6 +372,7 @@ class MediaStreamService extends ChangeNotifier {
       _isScreenInitializing = false;
 
       for (final track in stream.getVideoTracks()) {
+        track.enabled = true;
         track.onEnded = () {
           stopScreenShare();
         };
@@ -347,7 +382,8 @@ class MediaStreamService extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _screenShareError = 'Screen share cancelled or permission denied: $e';
+      debugPrint('[MediaStreamService] startScreenShare failed: $e');
+      _screenShareError = 'Screen share cancelled or failed: $e';
       _isScreenSharing = false;
       _isScreenInitializing = false;
       notifyListeners();

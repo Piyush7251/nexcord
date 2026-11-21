@@ -112,7 +112,25 @@ class _NexcordHomeState extends State<NexcordHome> {
   void initState() {
     super.initState();
     _sdk.addListener(_onSdkUpdate);
+    MediaStreamService.instance.addListener(_onMediaUpdate);
     _boot();
+  }
+
+  void _onMediaUpdate() {
+    final media = MediaStreamService.instance;
+    if (!mounted) return;
+    if (_screenSharing != media.isScreenSharing) {
+      setState(() => _screenSharing = media.isScreenSharing);
+      if (_voiceServerId != null) {
+        _api.updateVoiceState(streaming: _screenSharing).catchError((_) {});
+      }
+    }
+    if (_cameraOn != media.isCameraActive) {
+      setState(() => _cameraOn = media.isCameraActive);
+      if (_voiceServerId != null) {
+        _api.updateVoiceState(video: _cameraOn).catchError((_) {});
+      }
+    }
   }
 
   void _onSdkUpdate() {
@@ -447,10 +465,23 @@ class _NexcordHomeState extends State<NexcordHome> {
         _sdk.logVoiceAction('NCCall.endCall.warn', e.toString());
       }
     }
+    final leavingServerId = _voiceServerId;
     if (_voiceServerId != null && _voiceChannelId != null) {
       await _api.leaveVoice().catchError((_) {});
     }
     await MediaStreamService.instance.stopVoiceSession();
+
+    final targetServer = _servers.where((s) => s.id == (leavingServerId ?? _activeServerId)).firstOrNull 
+        ?? _activeServer 
+        ?? _servers.firstOrNull;
+
+    NexcordChannel? textCh;
+    if (targetServer != null) {
+      textCh = targetServer.channels.where((c) => c.type != 'voice' && c.name == 'general').firstOrNull
+          ?? targetServer.channels.where((c) => c.type != 'voice').firstOrNull
+          ?? targetServer.channels.firstOrNull;
+    }
+
     setState(() {
       _voiceServerId = null;
       _voiceChannelId = null;
@@ -459,7 +490,18 @@ class _NexcordHomeState extends State<NexcordHome> {
       _deafened = false;
       _cameraOn = false;
       _screenSharing = false;
+      _section = 'chat';
+      _homeMode = false;
+      if (targetServer != null && textCh != null) {
+        _activeServerId = targetServer.id;
+        _activeChannelId = textCh.id;
+      }
     });
+
+    if (targetServer != null && textCh != null) {
+      await _selectChannel(targetServer, textCh);
+    }
+    await _syncNow(silent: true);
   }
 
   Future<void> _toggleVoiceMic() async {
@@ -528,7 +570,10 @@ class _NexcordHomeState extends State<NexcordHome> {
         }
         return;
       }
-      setState(() => _screenSharing = true);
+      setState(() {
+        _screenSharing = true;
+        _cameraOn = media.isCameraActive;
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -548,7 +593,7 @@ class _NexcordHomeState extends State<NexcordHome> {
       setState(() => _screenSharing = false);
     }
     if (_voiceServerId != null) {
-      await _api.updateVoiceState(streaming: _screenSharing).catchError((_) {});
+      await _api.updateVoiceState(streaming: _screenSharing, video: _cameraOn).catchError((_) {});
     }
     _sdk.logVoiceAction('ScreenShare', 'sharing=$_screenSharing');
   }
@@ -557,6 +602,7 @@ class _NexcordHomeState extends State<NexcordHome> {
   void dispose() {
     _pollTimer?.cancel();
     _sdk.removeListener(_onSdkUpdate);
+    MediaStreamService.instance.removeListener(_onMediaUpdate);
     _msgCtrl.dispose();
     _chatScroll.dispose();
     super.dispose();
@@ -1236,9 +1282,6 @@ class _NexcordHomeState extends State<NexcordHome> {
         onToggleScreenShare: _toggleScreenShare,
         onHangup: () async {
           await _leaveVoiceChannel();
-          await _syncNow(silent: true);
-          final fallback = srv.channels.where((c) => c.type != 'voice').firstOrNull;
-          if (fallback != null) _selectChannel(srv, fallback);
         },
       );
     }
@@ -2395,7 +2438,6 @@ class _NexcordHomeState extends State<NexcordHome> {
             style: IconButton.styleFrom(backgroundColor: Colors.white24),
             onPressed: () async {
               await _leaveVoiceChannel();
-              await _syncNow(silent: true);
             },
           ),
         ],
@@ -2424,7 +2466,6 @@ class _NexcordHomeState extends State<NexcordHome> {
           onToggleScreenShare: _toggleScreenShare,
           onHangup: () async {
             await _leaveVoiceChannel();
-            await _syncNow(silent: true);
           },
         );
       }
