@@ -113,6 +113,26 @@ function relatedUserIds(uid) {
 const voice = {};
 const userVoice = {}; // userId -> { serverId, channelId }
 
+// live stage viewers (in-memory): channelId -> Set<userId>
+const liveViewers = new Map();
+const userLiveChannel = new Map(); // userId -> channelId
+
+function leaveLiveChannel(uid) {
+  const cid = userLiveChannel.get(uid);
+  if (!cid) return;
+  userLiveChannel.delete(uid);
+  const set = liveViewers.get(cid);
+  if (set) {
+    set.delete(uid);
+    const viewersList = Array.from(set);
+    if (set.size === 0) liveViewers.delete(cid);
+    const server = Object.values(db().servers).find((s) => s.channels.some((c) => c.id === cid));
+    if (server) {
+      notifyServer(server, 'live-viewers', { channelId: cid, viewers: viewersList });
+    }
+  }
+}
+
 function leaveVoice(uid) {
   const cur = userVoice[uid];
   if (!cur) return;
@@ -508,10 +528,18 @@ function serverView(s, uid) {
     voiceStates[cid] = Object.entries(v.members).map(([userId, st]) => ({ userId, ...st }));
   }
   const me = s.members.find((m) => m.userId === uid);
+  const channels = s.channels.map((c) => {
+    if (c.type === 'live') {
+      const vList = Array.from(liveViewers.get(c.id) || []);
+      const liveObj = c.live ? { ...c.live, viewers: vList } : null;
+      return { ...c, live: liveObj, liveViewers: vList };
+    }
+    return c;
+  });
   return {
     id: s.id, name: s.name, iconColor: s.iconColor, iconUrl: s.iconUrl || '', description: s.description || '',
     ownerId: s.ownerId, inviteCode: s.inviteCode, createdAt: s.createdAt,
-    categories: s.categories, channels: s.channels, roles: s.roles, members: s.members,
+    categories: s.categories, channels, roles: s.roles, members: s.members,
     pins: s.pins || {}, voiceStates, myPermissions: perms(s, uid), joinedAt: me?.joinedAt,
   };
 }
@@ -922,6 +950,33 @@ app.post('/api/servers/:id/channels/:cid/live/stop', auth, wrap(async (req, res)
   res.json({ ok: true });
 }));
 
+app.post('/api/servers/:id/channels/:cid/live/join', auth, wrap(async (req, res) => {
+  const s = getServer(req);
+  const cid = req.params.cid;
+  const ch = s.channels.find((c) => c.id === cid && c.type === 'live');
+  if (!ch) throw new HttpError(404, 'Live channel not found');
+
+  leaveLiveChannel(req.user.id);
+  if (!liveViewers.has(cid)) liveViewers.set(cid, new Set());
+  liveViewers.get(cid).add(req.user.id);
+  userLiveChannel.set(req.user.id, cid);
+
+  const viewersList = Array.from(liveViewers.get(cid));
+  notifyServer(s, 'live-viewers', { channelId: cid, viewers: viewersList });
+  res.json({ ok: true, channelId: cid, viewers: viewersList });
+}));
+
+app.post('/api/servers/:id/channels/:cid/live/leave', auth, wrap(async (req, res) => {
+  leaveLiveChannel(req.user.id);
+  res.json({ ok: true });
+}));
+
+app.get('/api/servers/:id/channels/:cid/live/viewers', auth, wrap(async (req, res) => {
+  const cid = req.params.cid;
+  const viewersList = Array.from(liveViewers.get(cid) || []);
+  res.json({ channelId: cid, viewers: viewersList });
+}));
+
 // ---------------------------------------------------------------- real-time message mirror + bots
 function recipientsForTarget(targetKey, senderId) {
   const d = db();
@@ -1301,6 +1356,7 @@ app.get('/api/events', auth, (req, res) => {
       offlineTimers.set(uid, setTimeout(() => {
         if ((streams.get(uid)?.size || 0) > 0) return;
         leaveVoice(uid);
+        leaveLiveChannel(uid);
         notify(relatedUserIds(uid), 'presence', { userId: uid });
       }, 15000));
     }

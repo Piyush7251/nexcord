@@ -51,6 +51,7 @@ export interface LiveBroadcastState {
   mode: 'esports-sim' | 'embed' | 'webrtc';
   callId: string;
   startedAt: number;
+  viewers?: string[];
 }
 
 export interface Channel {
@@ -61,6 +62,7 @@ export interface Channel {
   topic?: string;
   openChannelId?: string;
   live?: LiveBroadcastState | null;
+  liveViewers?: string[];
   slowmode?: number;
 }
 

@@ -132,15 +132,19 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
     };
   }, []);
 
-  // When live stops on backend, clean up local preview
+  const wasLiveRef = useRef(false);
+  // When live stops on backend, clean up local preview (only if it was live before and not currently capturing)
   useEffect(() => {
-    if (!live && localStream) {
+    if (live) {
+      wasLiveRef.current = true;
+    } else if (wasLiveRef.current && !isCapturing) {
+      wasLiveRef.current = false;
       localBroadcastStream.current?.getTracks().forEach((t) => t.stop());
       localBroadcastStream.current = null;
       setLocalStream(null);
       nexconn.setScreenStream(null);
     }
-  }, [live, localStream]);
+  }, [live, isCapturing]);
 
   // Video element binding effect for both local streamer and spectator
   useEffect(() => {
@@ -154,9 +158,50 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
       }
     } else if (live && live.userId) {
       nexconn.bindRemoteVideo(live.userId, el);
-      nexconn.connectToPeer(live.userId, live.callId || `live_${channel.id}`).catch(() => {});
+      const activeCallId = live.callId || `live_${channel.id}`;
+      nexconn.connectToPeer(live.userId, activeCallId).catch(() => {});
     }
   }, [localStream, live, isStreamer, isBroadcastingLocally, channel.id]);
+
+  // Streamer connects to all audience viewers who have joined the stream
+  const liveViewersList: string[] = (channel as any).liveViewers || (live as any)?.viewers || [];
+  useEffect(() => {
+    if (!isStreamer || !live) return;
+    const activeCallId = live.callId || `live_${channel.id}`;
+    nexconn.setCurrentCallId(activeCallId);
+    liveViewersList.forEach((viewerId: string) => {
+      if (viewerId !== me.id) {
+        nexconn.connectToPeer(viewerId, activeCallId).catch(() => {});
+      }
+    });
+  }, [isStreamer, live, liveViewersList, me.id, channel.id]);
+
+  // Spectator subscribes to remote video stream & playback
+  useEffect(() => {
+    if (isStreamer || !live?.userId) return;
+    const el = localVideoRef.current;
+    if (!el) return;
+
+    nexconn.bindRemoteVideo(live.userId, el);
+    const syncRemote = () => {
+      const stream = nexconn.getRemoteStream(live.userId);
+      const liveTracks = stream?.getVideoTracks().filter((t) => t.readyState === 'live') || [];
+      if (liveTracks.length > 0 && el) {
+        if (!el.srcObject || (el.srcObject as MediaStream).getVideoTracks()[0]?.id !== liveTracks[0].id) {
+          el.srcObject = new MediaStream(liveTracks);
+        }
+        if (el.paused) el.play().catch(() => {});
+      }
+    };
+    syncRemote();
+    const unsub = nexconn.subscribe(syncRemote);
+    const interval = setInterval(syncRemote, 600);
+    return () => {
+      unsub();
+      clearInterval(interval);
+      nexconn.bindRemoteVideo(live.userId, null);
+    };
+  }, [live?.userId, isStreamer]);
 
   const handleStopLive = () => {
     if (localBroadcastStream.current) {
@@ -346,6 +391,8 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
       }
 
       const activeCallId = `live_${channel.id}_${Date.now()}`;
+      nexconn.setCurrentCallId(activeCallId);
+      await nexconn.syncTracksToPeers().catch(() => {});
       onStartLive({
         title: `${me.displayName}'s Screen Share`,
         mode: 'webrtc',
@@ -369,11 +416,15 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
         stream = await navigator.mediaDevices.getUserMedia({
           video: isMobileDevice
             ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
-            : true,
+            : { width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: true,
         });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
       }
       localBroadcastStream.current?.getTracks().forEach((t) => t.stop());
       localBroadcastStream.current = stream;
@@ -393,6 +444,8 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
       }
 
       const activeCallId = `live_${channel.id}_${Date.now()}`;
+      nexconn.setCurrentCallId(activeCallId);
+      await nexconn.syncTracksToPeers().catch(() => {});
       onStartLive({
         title: isMobileDevice ? `${me.displayName}'s Mobile Live` : `${me.displayName}'s Camera Stream`,
         mode: 'webrtc',
@@ -490,10 +543,50 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
           </div>
 
           <div className="nc-live-controls">
-            <span className="nc-viewer-badge">
+            <div
+              className="nc-viewer-badge"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'rgba(87, 242, 135, 0.12)',
+                border: '1px solid rgba(87, 242, 135, 0.3)',
+                color: '#57f287',
+                padding: '3px 8px',
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'default',
+              }}
+              title={
+                liveViewersList.length > 0
+                  ? `Audience: ${liveViewersList.map((id) => users[id]?.displayName || id).join(', ')}`
+                  : 'No spectators yet'
+              }
+            >
               <Eye size={13} />
-              <span>{Math.max(1, server.members.length)}</span>
-            </span>
+              <span>Audience ({liveViewersList.length})</span>
+              {liveViewersList.length > 0 && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4 }}>
+                  {liveViewersList.slice(0, 5).map((uid) => {
+                    const u = users[uid];
+                    return (
+                      <div
+                        key={uid}
+                        style={{
+                          marginLeft: -5,
+                          borderRadius: '50%',
+                          border: '1.5px solid #1e1f22',
+                        }}
+                        title={u?.displayName || uid}
+                      >
+                        <Avatar user={u} size={16} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             <button
               type="button"

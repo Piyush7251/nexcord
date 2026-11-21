@@ -168,6 +168,12 @@ export const api = {
     req(`/api/servers/${serverId}/channels/${channelId}/live/start`, { method: 'POST', body: JSON.stringify(body) }),
   stopLive: (serverId: string, channelId: string) =>
     req(`/api/servers/${serverId}/channels/${channelId}/live/stop`, { method: 'POST' }),
+  joinLive: (serverId: string, channelId: string) =>
+    req<{ ok: boolean; channelId: string; viewers: string[] }>(`/api/servers/${serverId}/channels/${channelId}/live/join`, { method: 'POST' }),
+  leaveLive: (serverId: string, channelId: string) =>
+    req<{ ok: boolean }>(`/api/servers/${serverId}/channels/${channelId}/live/leave`, { method: 'POST' }),
+  getLiveViewers: (serverId: string, channelId: string) =>
+    req<{ channelId: string; viewers: string[] }>(`/api/servers/${serverId}/channels/${channelId}/live/viewers`),
 
   getMessages: (targetKey: string) =>
     req<{ messages: ChatMessage[] }>(`/api/messages/${encodeURIComponent(targetKey)}`),

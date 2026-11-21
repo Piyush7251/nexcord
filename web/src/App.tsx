@@ -237,10 +237,35 @@ export function App() {
     nexconn.connectToPeer(peerId, callId).catch(() => {});
   }, []);
 
+  const activeServer = useMemo(
+    () => servers.find((s) => s.id === activeServerId) || null,
+    [servers, activeServerId],
+  );
+  const activeChannel = useMemo(
+    () => activeServer?.channels.find((c) => c.id === activeChannelId) || null,
+    [activeServer, activeChannelId],
+  );
+
+  const isLiveStageActive = viewMode === 'server' && activeChannel?.type === 'live';
+
+  // Live stage viewer presence tracking
+  useEffect(() => {
+    if (!me || viewMode !== 'server' || !activeServer || !activeChannel || activeChannel.type !== 'live') {
+      return;
+    }
+    const srvId = activeServer.id;
+    const chId = activeChannel.id;
+    api.joinLive(srvId, chId).catch(() => {});
+
+    return () => {
+      api.leaveLive(srvId, chId).catch(() => {});
+    };
+  }, [me, viewMode, activeServer?.id, activeChannel?.id, activeChannel?.type]);
+
   // WebRTC Signal Polling Fallback (ensures signals are never lost even if SSE buffers behind proxy/Cloudflare)
   useEffect(() => {
     if (!me) return;
-    const isCallActive = callState.status === 'connected' || !!myVoice;
+    const isCallActive = callState.status === 'connected' || !!myVoice || isLiveStageActive;
     if (!isCallActive) return;
 
     const timer = setInterval(async () => {
@@ -255,7 +280,7 @@ export function App() {
     }, 250);
 
     return () => clearInterval(timer);
-  }, [me, callState.status, myVoice]);
+  }, [me, callState.status, myVoice, isLiveStageActive]);
 
   // Self-healing WebRTC watchdog (reconnects stalled or failed peer connections)
   useEffect(() => {
@@ -276,15 +301,6 @@ export function App() {
 
     return () => clearInterval(timer);
   }, [me, myVoice, callState.status, callState.callId, callState.peerIds]);
-
-  const activeServer = useMemo(
-    () => servers.find((s) => s.id === activeServerId) || null,
-    [servers, activeServerId],
-  );
-  const activeChannel = useMemo(
-    () => activeServer?.channels.find((c) => c.id === activeChannelId) || null,
-    [activeServer, activeChannelId],
-  );
 
   const activeTarget: ChannelTarget | null = useMemo(() => {
     if (!me) return null;
@@ -501,6 +517,25 @@ export function App() {
       } catch (err) {
         console.warn('webrtc-signal parse error', err);
       }
+    });
+    es.addEventListener('live-viewers', (e: MessageEvent) => {
+      try {
+        const { channelId, viewers } = JSON.parse(e.data);
+        setServers((prev) =>
+          prev.map((s) => ({
+            ...s,
+            channels: s.channels.map((ch) =>
+              ch.id === channelId
+                ? {
+                    ...ch,
+                    liveViewers: viewers,
+                    live: ch.live ? { ...ch.live, viewers } : ch.live,
+                  }
+                : ch
+            ),
+          }))
+        );
+      } catch {}
     });
     es.addEventListener('voice-join', (e: MessageEvent) => {
       try {
