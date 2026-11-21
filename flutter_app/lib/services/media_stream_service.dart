@@ -1,6 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class MediaStreamService extends ChangeNotifier {
   static final MediaStreamService instance = MediaStreamService._();
@@ -41,6 +42,14 @@ class MediaStreamService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        _cameraError = 'Camera permission was denied. Please grant camera access in settings.';
+        _isCameraInitializing = false;
+        notifyListeners();
+        return false;
+      }
+
       if (_cameras.isEmpty) {
         _cameras = await availableCameras();
       }
@@ -66,7 +75,6 @@ class MediaStreamService extends ChangeNotifier {
         _cameras[_selectedCameraIndex],
         ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
       await _cameraController!.initialize();
@@ -95,7 +103,6 @@ class MediaStreamService extends ChangeNotifier {
         _cameras[_selectedCameraIndex],
         ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await _cameraController!.initialize();
       _isCameraActive = true;
@@ -126,6 +133,10 @@ class MediaStreamService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      if (await Permission.notification.isDenied) {
+        await Permission.notification.request();
+      }
+
       if (_screenRenderer == null) {
         _screenRenderer = RTCVideoRenderer();
         await _screenRenderer!.initialize();
