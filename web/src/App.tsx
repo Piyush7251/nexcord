@@ -965,9 +965,10 @@ export function App() {
 
   const toggleCamera = async () => {
     const nextCam = !callState.cameraEnabled;
-    await nexconn.toggleCamera(nextCam);
-    setCallState((prev) => ({ ...prev, cameraEnabled: nextCam }));
-    if (myVoice) await api.updateVoiceState({ video: nextCam }).catch(() => {});
+    const active = await nexconn.toggleCamera(nextCam);
+    setCallState((prev) => ({ ...prev, cameraEnabled: active }));
+    if (myVoice) await api.updateVoiceState({ video: active }).catch(() => {});
+    await runSync();
   };
 
   const toggleScreenShare = async () => {

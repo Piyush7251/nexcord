@@ -54,11 +54,35 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
   const muted = isMe ? callState.micMuted : !!vp?.muted;
   const deafened = isMe ? callState.deafened : !!vp?.deafened;
   const isStreaming = isMe ? callState.screenSharing : !!vp?.streaming;
+  const hasLiveRemote = !isMe && nexconn.hasLiveRemoteVideo(uid);
   const isVideoExpected = isMe
     ? !!(callState.cameraEnabled || callState.screenSharing)
-    : callState.isGroup
-      ? !!(vp?.video || vp?.streaming)
-      : !!(callState.mediaType === 'video' || nexconn.hasLiveRemoteVideo(uid));
+    : !!(vp?.video || vp?.streaming || hasLiveRemote);
+
+  useEffect(() => {
+    if (isMe) return;
+    const stream = nexconn.getRemoteStream(uid);
+    if (!stream) return;
+
+    const handleTrackChange = () => {
+      const hasLive = stream.getVideoTracks().some((t) => t.readyState === 'live' && !t.muted);
+      if (!hasLive) {
+        setHasLiveFrames(false);
+      }
+    };
+
+    stream.getVideoTracks().forEach((t) => {
+      t.addEventListener('mute', handleTrackChange);
+      t.addEventListener('ended', handleTrackChange);
+    });
+
+    return () => {
+      stream.getVideoTracks().forEach((t) => {
+        t.removeEventListener('mute', handleTrackChange);
+        t.removeEventListener('ended', handleTrackChange);
+      });
+    };
+  }, [isMe, uid, isVideoExpected]);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -90,7 +114,8 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
         el.addEventListener('playing', checkPlaying);
         el.addEventListener('canplay', checkPlaying);
         el.addEventListener('resize', checkPlaying);
-        const poll = setInterval(checkPlaying, 500);
+        el.addEventListener('timeupdate', checkPlaying);
+        const poll = setInterval(checkPlaying, 300);
 
         return () => {
           clearInterval(poll);
@@ -98,6 +123,7 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
           el.removeEventListener('playing', checkPlaying);
           el.removeEventListener('canplay', checkPlaying);
           el.removeEventListener('resize', checkPlaying);
+          el.removeEventListener('timeupdate', checkPlaying);
         };
       } else {
         el.srcObject = null;

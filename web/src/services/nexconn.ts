@@ -950,6 +950,10 @@ class NexconnService {
         .find((t) => t.receiver.track.kind === 'video' || t.sender.track?.kind === 'video');
 
       if (videoTransceiver) {
+        if (liveVideo && videoTransceiver.direction !== 'sendrecv') {
+          videoTransceiver.direction = 'sendrecv';
+          needsRenegotiation = true;
+        }
         if (videoTransceiver.sender.track !== liveVideo) {
           await videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
         }
@@ -1165,20 +1169,30 @@ class NexconnService {
     this.log('call', 'NCCallEngine.enableMicrophone', `enabled=${enabled}`, 'info');
   }
 
-  async toggleCamera(enabled: boolean) {
+  async toggleCamera(enabled: boolean): Promise<boolean> {
     if (enabled) {
-      await this.ensureLocalMedia(true, true);
+      const stream = await this.ensureLocalMedia(true, true);
+      const hasLive = !!stream?.getVideoTracks().some((t) => t.readyState === 'live');
+      await this.syncTracksToPeers();
+      if (this.mode === 'connected' && this.callEngine) {
+        await this.callEngine.enableCamera(enabled).catch(() => {});
+      }
+      this.log('call', 'NCCallEngine.enableCamera', `enabled=true (live=${hasLive})`, 'info');
+      return hasLive;
     } else if (this.localStream) {
       this.localStream.getVideoTracks().forEach((t) => {
         t.stop();
         this.localStream?.removeTrack(t);
       });
+      await this.syncTracksToPeers();
+      if (this.mode === 'connected' && this.callEngine) {
+        await this.callEngine.enableCamera(false).catch(() => {});
+      }
+      this.log('call', 'NCCallEngine.enableCamera', 'enabled=false', 'info');
+      return false;
     }
     await this.syncTracksToPeers();
-    if (this.mode === 'connected' && this.callEngine) {
-      await this.callEngine.enableCamera(enabled).catch(() => {});
-    }
-    this.log('call', 'NCCallEngine.enableCamera', `enabled=${enabled}`, 'info');
+    return false;
   }
 
   setScreenStream(stream: MediaStream | null) {
