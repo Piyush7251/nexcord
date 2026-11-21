@@ -142,7 +142,7 @@ export const api = {
 
   createServer: (name: string, template: 'gaming' | 'standard' = 'gaming') =>
     req<{ server: Server }>('/api/servers', { method: 'POST', body: JSON.stringify({ name, template }) }),
-  updateServer: (id: string, patch: { name?: string; description?: string; iconColor?: string }) =>
+  updateServer: (id: string, patch: { name?: string; description?: string; iconColor?: string; iconUrl?: string; bannerUrl?: string }) =>
     req<{ server: Server }>(`/api/servers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteServer: (id: string) => req<{ ok: boolean }>(`/api/servers/${id}`, { method: 'DELETE' }),
   leaveServer: (id: string) => req<{ ok: boolean }>(`/api/servers/${id}/leave`, { method: 'POST' }),

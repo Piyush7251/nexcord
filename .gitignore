@@ -16,6 +16,7 @@ web/.env.*
 dist/
 web/dist/
 build/
+server/data/otp_security_state.json
 
 # Android build outputs
 .gradle/

@@ -93,6 +93,7 @@ export interface Server {
   name: string;
   iconColor: string;
   iconUrl?: string;
+  bannerUrl?: string;
   description?: string;
   ownerId: string;
   inviteCode: string;

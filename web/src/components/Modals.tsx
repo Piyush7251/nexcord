@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
+  Camera,
   Check,
   Copy,
   Crown,
   Gamepad2,
   Hash,
+  Image as ImageIcon,
   KeyRound,
   LogOut,
   MessageSquare,
@@ -19,6 +21,7 @@ import {
   Star,
   Trash2,
   Tv,
+  Upload,
   UserPlus,
   Video,
   Volume2,
@@ -833,7 +836,7 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
 interface ServerSettingsModalProps {
   server: Server;
   me: User;
-  onUpdateServer: (patch: { name?: string; description?: string; iconColor?: string }) => Promise<void>;
+  onUpdateServer: (patch: { name?: string; description?: string; iconColor?: string; iconUrl?: string; bannerUrl?: string }) => Promise<void>;
   onCreateRole: (name: string, color: string, perms: Record<string, boolean>) => Promise<void>;
   onDeleteRole: (roleId: string) => Promise<void>;
   onRegenInvite: () => Promise<void>;
@@ -854,7 +857,12 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   const [tab, setTab] = useState<'overview' | 'roles' | 'invites'>('overview');
   const [name, setName] = useState(server.name);
   const [description, setDescription] = useState(server.description || '');
-  const [iconColor, setIconColor] = useState(server.iconColor);
+  const [iconColor, setIconColor] = useState(server.iconColor || '#5865F2');
+  const [iconUrl, setIconUrl] = useState(server.iconUrl || '');
+  const [bannerUrl, setBannerUrl] = useState(server.bannerUrl || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   const [roleName, setRoleName] = useState('');
   const [roleColor, setRoleColor] = useState('#5865F2');
   const [roleAdmin, setRoleAdmin] = useState(false);
@@ -875,6 +883,58 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
     setTimeout(() => setCopiedId(false), 1500);
   };
 
+  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Server icon image must be under 5MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setIconUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      alert('Server banner image must be under 8MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setBannerUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onUpdateServer({
+        name: name.trim() || server.name,
+        description: description.trim(),
+        iconColor,
+        iconUrl: iconUrl.trim(),
+        bannerUrl: bannerUrl.trim(),
+      });
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        onClose();
+      }, 700);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="nc-modal-backdrop" onClick={onClose}>
       <div className="nc-modal wide" onClick={(e) => e.stopPropagation()}>
@@ -890,40 +950,221 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
 
         <div className="nc-modal-tabs">
           <button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
-            Overview
+            Overview & Profile
           </button>
           <button type="button" className={tab === 'roles' ? 'active' : ''} onClick={() => setTab('roles')}>
             Roles ({server.roles.length})
           </button>
           <button type="button" className={tab === 'invites' ? 'active' : ''} onClick={() => setTab('invites')}>
-            Invites
+            Invites & ID
           </button>
         </div>
 
         <div className="nc-modal-body">
           {tab === 'overview' && (
             <>
-              <div className="nc-field">
-                <span>UNIQUE SERVER ID (FOR DIRECT JOIN)</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                  <code style={{ background: 'var(--bg-tertiary)', padding: '6px 10px', borderRadius: 6, fontSize: 13, flex: 1 }}>{server.id}</code>
-                  <button type="button" className="nc-btn sm primary" onClick={copyServerId}>
-                    {copiedId ? <Check size={14} /> : <Copy size={14} />}
-                    <span>{copiedId ? 'Copied ID!' : 'Copy Server ID'}</span>
-                  </button>
+              {/* Live Preview Card */}
+              <div style={{
+                marginBottom: 16,
+                background: '#1e1f22',
+                borderRadius: 12,
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  height: 68,
+                  background: bannerUrl ? `url(${bannerUrl}) center/cover no-repeat` : 'linear-gradient(135deg, #2b2d31, #1e1f22)',
+                  position: 'relative',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                }}>
+                  <span style={{
+                    position: 'absolute',
+                    top: 6,
+                    right: 8,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: 0.5,
+                    color: 'rgba(255,255,255,0.7)',
+                    background: 'rgba(0,0,0,0.4)',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                  }}>
+                    LIVE PREVIEW
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', position: 'relative' }}>
+                  <div style={{ marginTop: -24, flexShrink: 0 }}>
+                    {iconUrl ? (
+                      <img
+                        src={iconUrl}
+                        alt="Server Icon"
+                        style={{
+                          width: 54,
+                          height: 54,
+                          borderRadius: '50%',
+                          objectFit: 'cover',
+                          border: '3px solid #1e1f22',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: 54,
+                          height: 54,
+                          borderRadius: '50%',
+                          background: iconColor,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 19,
+                          fontWeight: 700,
+                          color: '#fff',
+                          border: '3px solid #1e1f22',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                        }}
+                      >
+                        {(name || server.name).slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#f2f3f5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {name || 'Server Name'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                      {description || 'No description set'}
+                    </div>
+                  </div>
                 </div>
               </div>
-              <label className="nc-field">
-                <span>SERVER NAME</span>
-                <input value={name} onChange={(e) => setName(e.target.value)} />
-              </label>
-              <label className="nc-field">
-                <span>DESCRIPTION</span>
-                <input value={description} onChange={(e) => setDescription(e.target.value)} />
-              </label>
+
+              {/* 1. Server Picture / Icon */}
               <div className="nc-field">
-                <span>SERVER ICON COLOR</span>
-                <div className="nc-color-row">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Camera size={14} /> SERVER ICON / PICTURE
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 8, flexWrap: 'wrap' }}>
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    {iconUrl ? (
+                      <img
+                        src={iconUrl}
+                        alt="Server Icon"
+                        style={{ width: 68, height: 68, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.15)' }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: 68,
+                          height: 68,
+                          borderRadius: '50%',
+                          background: iconColor,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 22,
+                          fontWeight: 700,
+                          color: '#fff',
+                          border: '2px solid rgba(255,255,255,0.15)',
+                        }}
+                      >
+                        {(name || server.name).slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 200 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <label className="nc-btn sm primary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Upload size={14} />
+                        <span>Upload Image</span>
+                        <input type="file" accept="image/*" onChange={handleIconUpload} style={{ display: 'none' }} />
+                      </label>
+                      {iconUrl && (
+                        <button type="button" className="nc-btn sm secondary" onClick={() => setIconUrl('')}>
+                          <Trash2 size={13} />
+                          <span>Remove Picture</span>
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Or paste an image URL (https://...)"
+                      value={iconUrl}
+                      onChange={(e) => setIconUrl(e.target.value)}
+                      style={{ fontSize: 12.5, padding: '7px 10px' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Server Banner Picture */}
+              <div className="nc-field" style={{ marginTop: 12 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ImageIcon size={14} /> SERVER BANNER (OPTIONAL)
+                </span>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label className="nc-btn sm secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Upload size={14} />
+                    <span>Upload Banner</span>
+                    <input type="file" accept="image/*" onChange={handleBannerUpload} style={{ display: 'none' }} />
+                  </label>
+                  {bannerUrl && (
+                    <button type="button" className="nc-btn sm secondary" onClick={() => setBannerUrl('')}>
+                      <Trash2 size={13} />
+                      <span>Remove Banner</span>
+                    </button>
+                  )}
+                  <input
+                    type="text"
+                    placeholder="Or banner URL (https://...)"
+                    value={bannerUrl}
+                    onChange={(e) => setBannerUrl(e.target.value)}
+                    style={{ fontSize: 12.5, padding: '7px 10px', flex: 1, minWidth: 180 }}
+                  />
+                </div>
+              </div>
+
+              {/* 3. Server Name */}
+              <label className="nc-field" style={{ marginTop: 12 }}>
+                <span>SERVER NAME</span>
+                <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder="Squad Name" />
+              </label>
+
+              {/* 4. Server Description */}
+              <label className="nc-field" style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>SERVER DESCRIPTION / ABOUT</span>
+                  <span style={{ fontSize: 11, color: description.length > 450 ? '#ED4245' : 'var(--text-muted)' }}>
+                    {description.length}/500
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Tell new members what your squad, clan, or gaming server is all about..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  style={{
+                    resize: 'vertical',
+                    minHeight: 65,
+                    fontFamily: 'inherit',
+                    fontSize: 13.5,
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 6,
+                    padding: '8px 10px',
+                    color: '#f2f3f5',
+                    width: '100%',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </label>
+
+              {/* 5. Theme Color Swatch */}
+              <div className="nc-field" style={{ marginTop: 12 }}>
+                <span>SERVER THEME ACCENT COLOR</span>
+                <div className="nc-color-row" style={{ marginTop: 6 }}>
                   {COLORS.map((c) => (
                     <button
                       key={c}
@@ -935,14 +1176,18 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                   ))}
                 </div>
               </div>
-              <div className="nc-modal-actions spread">
+
+              {/* Actions */}
+              <div className="nc-modal-actions spread" style={{ marginTop: 20 }}>
                 {isOwner ? (
                   <button
                     type="button"
                     className="nc-btn danger"
                     onClick={async () => {
-                      await onDeleteServer();
-                      onClose();
+                      if (confirm(`Are you sure you want to permanently delete '${server.name}'? This cannot be undone.`)) {
+                        await onDeleteServer();
+                        onClose();
+                      }
                     }}
                   >
                     <Trash2 size={14} />
@@ -951,16 +1196,20 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                 ) : (
                   <span />
                 )}
-                <button
-                  type="button"
-                  className="nc-btn primary"
-                  onClick={async () => {
-                    await onUpdateServer({ name, description, iconColor });
-                    onClose();
-                  }}
-                >
-                  Save Changes
-                </button>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button type="button" className="nc-btn secondary" onClick={onClose} disabled={isSaving}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="nc-btn primary"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    style={{ minWidth: 120, justifyContent: 'center' }}
+                  >
+                    {isSaving ? 'Saving...' : saveSuccess ? '✓ Saved!' : 'Save Changes'}
+                  </button>
+                </div>
               </div>
             </>
           )}

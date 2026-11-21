@@ -1260,11 +1260,44 @@ export function App() {
         ) : activeServer ? (
           <>
             <div className="nc-sidebar-head server" onClick={() => setShowServerMenu((v) => !v)}>
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1, textAlign: 'left', overflow: 'hidden' }}>
-                <span className="nc-srv-title">{activeServer.name}</span>
-                <span style={{ fontSize: '11px', color: copiedServerId ? '#3BA55C' : 'var(--text-muted)', fontFamily: 'monospace', opacity: 0.9 }}>
-                  {copiedServerId ? '✓ Copied ID to clipboard!' : `ID: ${activeServer.id}`}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1, textAlign: 'left', overflow: 'hidden' }}>
+                {activeServer.iconUrl ? (
+                  <img
+                    src={activeServer.iconUrl}
+                    alt={activeServer.name}
+                    style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      background: activeServer.iconColor || 'var(--blurple)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#fff',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {activeServer.name.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                  <span className="nc-srv-title">{activeServer.name}</span>
+                  {activeServer.description ? (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {activeServer.description}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '11px', color: copiedServerId ? '#3BA55C' : 'var(--text-muted)', fontFamily: 'monospace', opacity: 0.9 }}>
+                      {copiedServerId ? '✓ Copied ID to clipboard!' : `ID: ${activeServer.id}`}
+                    </span>
+                  )}
+                </div>
               </div>
               <ChevronDown size={16} />
               <button

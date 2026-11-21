@@ -597,7 +597,7 @@ function serverView(s, uid) {
     return c;
   });
   return {
-    id: s.id, name: s.name, iconColor: s.iconColor, iconUrl: s.iconUrl || '', description: s.description || '',
+    id: s.id, name: s.name, iconColor: s.iconColor, iconUrl: s.iconUrl || '', bannerUrl: s.bannerUrl || '', description: s.description || '',
     ownerId: s.ownerId, inviteCode: s.inviteCode, createdAt: s.createdAt,
     categories: s.categories, channels, roles: s.roles, members: s.members,
     pins: s.pins || {}, voiceStates, myPermissions: perms(s, uid), joinedAt: me?.joinedAt,
@@ -831,14 +831,15 @@ app.post('/api/servers', auth, wrap(async (req, res) => {
 app.patch('/api/servers/:id', auth, wrap(async (req, res) => {
   const s = getServer(req);
   requirePerm(s, req.user.id, 'manageServer');
-  const { name, iconColor, iconUrl, description } = req.body || {};
+  const { name, iconColor, iconUrl, bannerUrl, description } = req.body || {};
   if (name !== undefined && String(name).trim()) {
     s.name = String(name).trim().slice(0, 100);
     if (nx.isConfigured()) nx.refreshCommunity(s.id, s.name).catch(() => {});
   }
   if (iconColor !== undefined) s.iconColor = String(iconColor).slice(0, 16);
-  if (iconUrl !== undefined) s.iconUrl = String(iconUrl).slice(0, 1000);
-  if (description !== undefined) s.description = String(description).slice(0, 300);
+  if (iconUrl !== undefined) s.iconUrl = String(iconUrl).slice(0, 500000);
+  if (bannerUrl !== undefined) s.bannerUrl = String(bannerUrl).slice(0, 500000);
+  if (description !== undefined) s.description = String(description).slice(0, 1000);
   save(); notifyServer(s);
   res.json({ server: serverView(s, req.user.id) });
 }));
