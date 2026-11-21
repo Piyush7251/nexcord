@@ -289,12 +289,39 @@ app.post('/api/config/credentials', wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- SMS OTP Store & Auth
 const otpStore = new Map(); // phone -> { code, expiresAt }
+const otpCooldownStore = new Map(); // phone -> { attempts: number, cooldownUntil: number }
+
+// Progressive OTP cooldown in minutes: 2, 3, 5, 10, 15, 20, 30 (caps at 30 min)
+const OTP_COOLDOWN_SCHEDULE_MINUTES = [2, 3, 5, 10, 15, 20, 30];
+
+function getCooldownSecondsForAttempt(attemptIndex) {
+  if (attemptIndex <= 0) return 2 * 60; // 2 minutes default for initial request
+  if (attemptIndex >= OTP_COOLDOWN_SCHEDULE_MINUTES.length) {
+    return 30 * 60; // capped at 30 minutes
+  }
+  return OTP_COOLDOWN_SCHEDULE_MINUTES[attemptIndex] * 60;
+}
 
 function sanitizePhone(raw) {
   let s = String(raw || '').trim().replace(/[^\d+]/g, '');
   if (!s.startsWith('+') && s.length === 10) s = `+91${s}`;
   return s;
 }
+
+app.get('/api/auth/cooldown', (req, res) => {
+  const phone = sanitizePhone(req.query.phone || '');
+  if (!phone) return res.json({ cooldownSeconds: 0 });
+  const cd = otpCooldownStore.get(phone);
+  const now = Date.now();
+  if (cd && cd.cooldownUntil > now) {
+    return res.json({
+      cooldownSeconds: Math.ceil((cd.cooldownUntil - now) / 1000),
+      cooldownUntil: cd.cooldownUntil,
+      attempts: cd.attempts,
+    });
+  }
+  return res.json({ cooldownSeconds: 0 });
+});
 
 app.post('/api/auth/send-otp', wrap(async (req, res) => {
   const { phone } = req.body || {};
@@ -323,6 +350,24 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
     }
   }
 
+  const now = Date.now();
+  const cooldownRecord = otpCooldownStore.get(clean);
+
+  // Check if cooldown timer is still active
+  if (cooldownRecord && cooldownRecord.cooldownUntil > now && !isAdmin) {
+    const remainingSec = Math.ceil((cooldownRecord.cooldownUntil - now) / 1000);
+    const m = Math.floor(remainingSec / 60);
+    const s = remainingSec % 60;
+    const formatted = m > 0 ? `${m}m ${s}s` : `${s}s`;
+    addLog('warn', 'AUTH', `OTP request throttled for ${clean}. Cooldown remaining: ${formatted}`);
+    return res.status(429).json({
+      ok: false,
+      error: `Cooldown active. Please wait ${formatted} before requesting another code.`,
+      cooldownSeconds: remainingSec,
+      cooldownUntil: cooldownRecord.cooldownUntil,
+    });
+  }
+
   if (isAdmin) {
     otpStore.set(clean, { code: '123456', expiresAt: Date.now() + 60 * 60 * 1000 });
     addLog('info', 'AUTH', 'Admin OTP 123456 generated for 123456789');
@@ -331,19 +376,33 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
       phone: clean,
       provider: 'Nexcord Admin Gate',
       deliveredToCarrier: true,
+      cooldownSeconds: 120,
+      nextCooldownSeconds: 180,
+      cooldownUntil: Date.now() + 120 * 1000,
       message: 'Admin authorization code: 123456',
       isAdmin: true,
     });
   }
 
+  // Calculate cooldown duration based on attempt count
+  const currentAttempts = cooldownRecord ? cooldownRecord.attempts : 0;
+  const cooldownSec = getCooldownSecondsForAttempt(currentAttempts);
+  const cooldownUntil = now + cooldownSec * 1000;
+
+  // Record cooldown tracking
+  otpCooldownStore.set(clean, {
+    attempts: currentAttempts + 1,
+    cooldownUntil,
+  });
+
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   otpStore.set(clean, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
-  addLog('info', 'AUTH', `Sending OTP to ${clean}`);
+  addLog('info', 'AUTH', `Sending OTP to ${clean} (Attempt: ${currentAttempts + 1}, Cooldown: ${cooldownSec / 60}m)`);
 
   const smsResult = await sendSms({ phone: clean, code });
 
   console.log(`\n======================================================`);
-  console.log(`📲 [SMS OTP] To: ${clean} | Code: ${code} | Provider: ${smsResult.provider}`);
+  console.log(`📲 [SMS OTP] To: ${clean} | Code: ${code} | Provider: ${smsResult.provider} | Cooldown: ${cooldownSec}s`);
   console.log(`======================================================\n`);
 
   res.json({
@@ -351,6 +410,9 @@ app.post('/api/auth/send-otp', wrap(async (req, res) => {
     phone: clean,
     provider: smsResult.provider,
     deliveredToCarrier: smsResult.deliveredToCarrier,
+    cooldownSeconds: cooldownSec,
+    nextCooldownSeconds: getCooldownSecondsForAttempt(currentAttempts + 1),
+    cooldownUntil,
     message: smsResult.deliveredToCarrier
       ? `Verification code sent via WhatsApp to ${clean}`
       : (smsResult.details ? `Fast2SMS: ${smsResult.details}` : `Verification code sent to ${clean}`),
@@ -388,9 +450,11 @@ app.post('/api/auth/verify-otp', wrap(async (req, res) => {
   const isValid = (rec && rec.code === code && rec.expiresAt > Date.now()) || (isAdmin && code === '123456') || code === '123456';
   if (!isValid) {
     addLog('warn', 'AUTH', `Failed OTP verification attempt for ${clean}`);
-    throw new HttpError(400, 'Invalid or expired verification code');
+    throw new HttpError(400, 'Invalid or expired verification code. Please check the code or tap Resend Code.');
   }
   otpStore.delete(clean);
+  // Reset cooldown back to default 2 minutes after successful login
+  otpCooldownStore.delete(clean);
 
   const d = db();
   let user = Object.values(d.users).find((u) => u.phone === clean || (isAdmin && (u.phone === clean || u.username === 'admin')));

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Check,
@@ -55,6 +55,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
   const [displayName, setDisplayName] = useState('');
   const [cooldown, setCooldown] = useState(0);
 
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const interval = setInterval(() => {
+      setCooldown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldown]);
+
+  const formatCooldown = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
   // Password fallback mode states
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
@@ -88,21 +102,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
     setBusy(true);
     try {
       if (serverUrl.trim()) setApiBase(serverUrl.trim());
-      await api.sendOtp(fullPhone);
+      const res = await api.sendOtp(fullPhone);
       setMobileStep('otp');
-      setCooldown(30);
-
-      const timer = setInterval(() => {
-        setCooldown((c) => {
-          if (c <= 1) {
-            clearInterval(timer);
-            return 0;
-          }
-          return c - 1;
-        });
-      }, 1000);
+      const cd = res.cooldownSeconds || 120;
+      setCooldown(cd);
     } catch (e: any) {
       setErr(e?.message || 'Failed to send verification SMS');
+      if (e?.cooldownSeconds) {
+        setCooldown(e.cooldownSeconds);
+      }
     } finally {
       setBusy(false);
     }
@@ -334,25 +342,43 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                   <span>{busy ? 'Verifying...' : 'Verify & Enter Homepage'}</span>
                 </button>
 
-                <div className="nc-otp-actions">
-                  <button
-                    type="button"
-                    className="nc-link-btn"
-                    onClick={() => {
-                      setErr('');
-                      setMobileStep('phone');
-                    }}
-                  >
-                    ← Change Mobile Number
-                  </button>
-                  <button
-                    type="button"
-                    className="nc-link-btn"
-                    disabled={cooldown > 0 || busy}
-                    onClick={() => handleSendOtp()}
-                  >
-                    {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend WhatsApp Code'}
-                  </button>
+                <div className="nc-otp-actions" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <button
+                      type="button"
+                      className="nc-link-btn"
+                      onClick={() => {
+                        setErr('');
+                        setMobileStep('phone');
+                      }}
+                    >
+                      ← Change Mobile Number
+                    </button>
+                    <button
+                      type="button"
+                      className={`nc-btn ${cooldown > 0 ? 'secondary' : 'primary'}`}
+                      style={{ padding: '6px 14px', fontSize: 13 }}
+                      disabled={cooldown > 0 || busy}
+                      onClick={() => handleSendOtp()}
+                    >
+                      {cooldown > 0 ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <RefreshCw size={13} className="spin" />
+                          <span>Resend Code ({formatCooldown(cooldown)})</span>
+                        </span>
+                      ) : (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <RefreshCw size={13} />
+                          <span>Resend WhatsApp Code</span>
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                  {cooldown > 0 && (
+                    <div style={{ fontSize: 11.5, color: '#949ba4', textAlign: 'right' }}>
+                      Security cooldown: next code available in {formatCooldown(cooldown)}
+                    </div>
+                  )}
                 </div>
               </form>
             )}

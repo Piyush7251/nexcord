@@ -77,7 +77,15 @@ export const api = {
     }),
 
   sendOtp: (phone: string) =>
-    req<{ ok: boolean; phone: string; devOtp?: string; message: string }>('/api/auth/send-otp', {
+    req<{
+      ok: boolean;
+      phone: string;
+      devOtp?: string;
+      message: string;
+      cooldownSeconds?: number;
+      nextCooldownSeconds?: number;
+      cooldownUntil?: number;
+    }>('/api/auth/send-otp', {
       method: 'POST',
       body: JSON.stringify({ phone }),
     }),
