@@ -178,6 +178,7 @@ class ServerPermissions {
   final bool kick;
   final bool ban;
   final bool canPromote;
+  final bool canStream;
 
   ServerPermissions({
     this.admin = false,
@@ -186,6 +187,7 @@ class ServerPermissions {
     this.kick = false,
     this.ban = false,
     this.canPromote = false,
+    this.canStream = false,
   });
 
   factory ServerPermissions.fromJson(Map<String, dynamic>? j) => ServerPermissions(
@@ -195,6 +197,7 @@ class ServerPermissions {
         kick: j?['kick'] == true,
         ban: j?['ban'] == true,
         canPromote: j?['canPromote'] == true,
+        canStream: j?['canStream'] == true,
       );
 }
 

@@ -288,6 +288,21 @@ class ApiService {
         if (text != null) 'text': text,
       });
 
+  Future<void> startLive(String serverId, String channelId, {String title = '', String mode = 'camera'}) =>
+      _req('POST', '/api/servers/$serverId/channels/$channelId/live/start', {
+        'title': title,
+        'mode': mode,
+      });
+
+  Future<void> stopLive(String serverId, String channelId) =>
+      _req('POST', '/api/servers/$serverId/channels/$channelId/live/stop');
+
+  Future<void> joinLive(String serverId, String channelId) =>
+      _req('POST', '/api/servers/$serverId/channels/$channelId/live/join');
+
+  Future<void> leaveLive(String serverId, String channelId) =>
+      _req('POST', '/api/servers/$serverId/channels/$channelId/live/leave');
+
   Future<VoiceJoinResult> joinVoice(String serverId, String channelId) async {
     final j = await _req('POST', '/api/voice/join', {'serverId': serverId, 'channelId': channelId});
     return VoiceJoinResult.fromJson(j);

@@ -8,6 +8,7 @@ import 'package:ai_nexconn_chatui_plugin/ai_nexconn_chatui_plugin.dart';
 import 'models/models.dart';
 import 'services/api_service.dart';
 import 'services/nexconn_sdk_service.dart';
+import 'services/media_stream_service.dart';
 import 'widgets/squad_and_quickchat.dart';
 import 'widgets/live_stream_stage_view.dart';
 import 'widgets/voice_huddle_view.dart';
@@ -419,6 +420,8 @@ class _NexcordHomeState extends State<NexcordHome> {
     if (_voiceServerId != null && _voiceChannelId != null) {
       await _api.leaveVoice().catchError((_) {});
     }
+    await MediaStreamService.instance.stopCamera();
+    await MediaStreamService.instance.stopScreenShare();
     setState(() {
       _voiceServerId = null;
       _voiceChannelId = null;
@@ -458,44 +461,61 @@ class _NexcordHomeState extends State<NexcordHome> {
   }
 
   Future<void> _toggleVoiceCamera() async {
-    if (!_cameraOn) {
+    final media = MediaStreamService.instance;
+    if (!media.isCameraActive) {
       final hasCam = await _requestCameraPermission();
       if (!hasCam) return;
+      final ok = await media.startCamera(front: true);
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(media.cameraError ?? 'Failed to open camera.')),
+          );
+        }
+        return;
+      }
+      setState(() => _cameraOn = true);
+    } else {
+      await media.stopCamera();
+      setState(() => _cameraOn = false);
     }
-    setState(() => _cameraOn = !_cameraOn);
     if (_voiceServerId != null) {
       await _api.updateVoiceState(video: _cameraOn).catchError((_) {});
     }
-    if (_callSdkReady && _callEngine != null && _voiceCallId != null) {
-      try {
-        await _callEngine!.enableCamera(call_nc.CameraParams(callId: _voiceCallId!, enabled: _cameraOn));
-        _sdk.logVoiceAction('NCCall.enableCamera', 'enabled=$_cameraOn');
-      } catch (e) {
-        _sdk.logVoiceAction('NCCall.enableCamera.warn', e.toString());
-      }
-    }
+    _sdk.logVoiceAction('Camera', 'cameraOn=$_cameraOn');
   }
 
   Future<void> _toggleScreenShare() async {
-    if (!_screenSharing) {
-      final ok = await _requestScreenSharePermission();
-      if (!ok) return;
+    final media = MediaStreamService.instance;
+    if (!media.isScreenSharing) {
+      final ok = await media.startScreenShare();
+      if (!ok) {
+        if (mounted && media.screenShareError != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(media.screenShareError!)),
+          );
+        }
+        return;
+      }
+      setState(() => _screenSharing = true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            backgroundColor: Color(0xFF5865F2),
+            backgroundColor: Color(0xFF23A55A),
             content: Row(
               children: [
                 Icon(Icons.screen_share_rounded, color: Colors.white, size: 20),
                 SizedBox(width: 10),
-                Expanded(child: Text('Screen sharing requested. Broadcast active.')),
+                Expanded(child: Text('Screen broadcast active in voice channel! 📺')),
               ],
             ),
           ),
         );
       }
+    } else {
+      await media.stopScreenShare();
+      setState(() => _screenSharing = false);
     }
-    setState(() => _screenSharing = !_screenSharing);
     _sdk.logVoiceAction('ScreenShare', 'sharing=$_screenSharing');
   }
 
@@ -1153,6 +1173,14 @@ class _NexcordHomeState extends State<NexcordHome> {
           _sendText(txt, type: 'quickchat', metadata: {'badge': 'QUICK CHAT', 'category': preset.category});
         },
         onSendHype: (em) => _api.sendLiveHype(srv.id, ch.id, em),
+        onStartLive: ({required mode, required title}) async {
+          await _api.startLive(srv.id, ch.id, mode: mode, title: title);
+          await _syncNow();
+        },
+        onStopLive: () async {
+          await _api.stopLive(srv.id, ch.id);
+          await _syncNow();
+        },
       );
     }
 
