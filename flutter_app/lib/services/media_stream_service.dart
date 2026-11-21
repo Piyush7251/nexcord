@@ -58,6 +58,8 @@ class MediaStreamService extends ChangeNotifier {
 
   bool _isMicMuted = false;
   bool _isDeafened = false;
+  bool _gameAudioMode = false;
+  double _gameAudioVolume = 1.5;
 
   // WebRTC PeerConnection Mesh State
   List<Map<String, dynamic>> _iceServers = [
@@ -121,6 +123,8 @@ class MediaStreamService extends ChangeNotifier {
   bool get isMicMuted => _isMicMuted;
   bool get isDeafened => _isDeafened;
   String get currentCallId => _currentCallId;
+  bool get isGameAudioMode => _gameAudioMode;
+  double get gameAudioVolume => _gameAudioVolume;
 
   RTCVideoRenderer? getRemoteRenderer(String userId) => _remoteRenderers[userId];
 
@@ -169,7 +173,145 @@ class MediaStreamService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  // ------------------------------------------------------------- Local Audio
+  // ------------------------------------------------------------- Local Audio & Game Audio
+  Map<String, dynamic> _getAudioConstraints(bool isGameMode) {
+    if (isGameMode) {
+      return {
+        'audio': {
+          'echoCancellation': false,
+          'noiseSuppression': false,
+          'autoGainControl': true,
+          'highpassFilter': false,
+          'typingNoiseDetection': false,
+          'mandatory': {
+            'googEchoCancellation': 'false',
+            'googAutoGainControl': 'true',
+            'googNoiseSuppression': 'false',
+            'googHighpassFilter': 'false',
+            'googAudioMirroring': 'false',
+            'googTypingNoiseDetection': 'false',
+          },
+          'optional': [
+            {'googEchoCancellation': false},
+            {'googAutoGainControl': true},
+            {'googNoiseSuppression': false},
+            {'googHighpassFilter': false},
+          ],
+        },
+        'video': false,
+      };
+    } else {
+      return {
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+          'highpassFilter': true,
+          'mandatory': {
+            'googEchoCancellation': 'true',
+            'googAutoGainControl': 'true',
+            'googNoiseSuppression': 'true',
+            'googHighpassFilter': 'true',
+          },
+        },
+        'video': false,
+      };
+    }
+  }
+
+  Future<void> setGameAudioVolume(double vol) async {
+    _gameAudioVolume = vol.clamp(0.0, 3.0);
+    await _applyAudioVolume();
+    notifyListeners();
+  }
+
+  Future<void> _applyAudioVolume() async {
+    final vol = _gameAudioMode ? _gameAudioVolume : 1.0;
+    if (_audioStream != null) {
+      for (final track in _audioStream!.getAudioTracks()) {
+        try {
+          await Helper.setVolume(vol, track);
+        } catch (e) {
+          debugPrint('[MediaStreamService] Helper.setVolume error on local track: $e');
+        }
+      }
+    }
+    for (final stream in _remoteStreams.values) {
+      for (final track in stream.getAudioTracks()) {
+        try {
+          await Helper.setVolume(vol, track);
+        } catch (e) {
+          debugPrint('[MediaStreamService] Helper.setVolume error on remote track: $e');
+        }
+      }
+    }
+  }
+
+  Future<void> setGameAudioMode(bool enabled, {bool force = false}) async {
+    if (_gameAudioMode == enabled && !force) return;
+    _gameAudioMode = enabled;
+    await _reacquireAudioStream();
+    notifyListeners();
+  }
+
+  Future<void> _reacquireAudioStream() async {
+    try {
+      final micPerm = await Permission.microphone.request();
+      if (!micPerm.isGranted) return;
+
+      final oldStream = _audioStream;
+      MediaStream? newStream;
+      final constraints = _getAudioConstraints(_gameAudioMode);
+
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (_) {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          'audio': {
+            'echoCancellation': !_gameAudioMode,
+            'noiseSuppression': !_gameAudioMode,
+            'autoGainControl': true,
+          },
+          'video': false,
+        });
+      }
+
+      _audioStream = newStream;
+      _applyMicMuteState();
+      await _applyAudioVolume();
+
+      try {
+        await Helper.setSpeakerphoneOn(!_isDeafened);
+      } catch (_) {}
+
+      final liveAudio = _activeAudioTrack;
+      for (final pc in _peers.values) {
+        if (pc.signalingState == RTCSignalingState.RTCSignalingStateClosed) continue;
+        try {
+          final transceivers = await pc.getTransceivers();
+          for (final tr in transceivers) {
+            if (tr.stoped) continue;
+            final kind = tr.receiver.track?.kind ?? tr.sender.track?.kind;
+            if (kind == 'audio') {
+              await tr.sender.replaceTrack(liveAudio).catchError((_) {});
+            }
+          }
+        } catch (e) {
+          debugPrint('[MediaStreamService] replaceTrack error: $e');
+        }
+      }
+
+      if (oldStream != null) {
+        try {
+          oldStream.getTracks().forEach((t) => t.stop());
+          await oldStream.dispose();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('[MediaStreamService] _reacquireAudioStream failed: $e');
+    }
+  }
+
   Future<bool> ensureLocalAudio() async {
     try {
       final micPerm = await Permission.microphone.request();
@@ -177,28 +319,28 @@ class MediaStreamService extends ChangeNotifier {
 
       if (_audioStream != null && _audioStream!.getAudioTracks().isNotEmpty) {
         _applyMicMuteState();
+        await _applyAudioVolume();
         return true;
       }
 
+      final constraints = _getAudioConstraints(_gameAudioMode);
       MediaStream? stream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          'audio': {
-            'echoCancellation': true,
-            'noiseSuppression': true,
-            'autoGainControl': true,
-          },
-          'video': false,
-        });
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (_) {
         stream = await navigator.mediaDevices.getUserMedia({
-          'audio': true,
+          'audio': {
+            'echoCancellation': !_gameAudioMode,
+            'noiseSuppression': !_gameAudioMode,
+            'autoGainControl': true,
+          },
           'video': false,
         });
       }
 
       _audioStream = stream;
       _applyMicMuteState();
+      await _applyAudioVolume();
       try {
         await Helper.setSpeakerphoneOn(!_isDeafened);
       } catch (_) {}
@@ -397,6 +539,9 @@ class MediaStreamService extends ChangeNotifier {
       _isScreenSharing = true;
       _isScreenInitializing = false;
 
+      // Automatically activate Game Audio Mode so game sounds aren't cancelled by AEC
+      await setGameAudioMode(true, force: true);
+
       for (final track in stream.getVideoTracks()) {
         track.enabled = true;
         track.onEnded = () {
@@ -428,6 +573,10 @@ class MediaStreamService extends ChangeNotifier {
     if (_screenRenderer != null) {
       _screenRenderer!.srcObject = null;
     }
+
+    // Restore normal voice chat audio mode
+    await setGameAudioMode(false);
+
     notifyListeners();
 
     await syncTracksToPeers(renegotiate: true);
@@ -447,6 +596,17 @@ class MediaStreamService extends ChangeNotifier {
     _currentCallId = callId;
     _isMicMuted = micMuted;
     _isDeafened = deafened;
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration(
+          manageAudioFocus: true,
+          androidAudioMode: AndroidAudioMode.normal,
+          androidAudioFocusMode: AndroidAudioFocusMode.gainTransientMayDuck,
+          androidAudioStreamType: AndroidAudioStreamType.music,
+        ));
+      } catch (_) {}
+    }
 
     await refreshIceServers();
     await ensureLocalAudio();
@@ -520,6 +680,7 @@ class MediaStreamService extends ChangeNotifier {
     _activePeerIds = [];
     _liveStagePeerId = null;
     _currentCallId = '';
+    _gameAudioMode = false;
 
     for (final t in _outgoingCandTimers.values) {
       t.cancel();
@@ -800,8 +961,14 @@ class MediaStreamService extends ChangeNotifier {
     if (track.kind == 'audio') {
       track.enabled = !_isDeafened;
       Helper.setSpeakerphoneOn(!_isDeafened).catchError((_) {});
+      if (_gameAudioMode && _gameAudioVolume != 1.0) {
+        Helper.setVolume(_gameAudioVolume, track).catchError((_) {});
+      }
       track.onUnMute = () {
         track.enabled = !_isDeafened;
+        if (_gameAudioMode && _gameAudioVolume != 1.0) {
+          Helper.setVolume(_gameAudioVolume, track).catchError((_) {});
+        }
         notifyListeners();
       };
     } else if (track.kind == 'video') {

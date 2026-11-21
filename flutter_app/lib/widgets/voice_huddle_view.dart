@@ -293,7 +293,11 @@ class VoiceHuddleView extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
+
+              // Game / Stream Audio Volume Boost Bar
+              _buildGameAudioVolumeBar(context, media),
+              const SizedBox(height: 8),
 
               // Control Dock
               Row(
@@ -321,6 +325,165 @@ class VoiceHuddleView extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildGameAudioVolumeBar(BuildContext context, MediaStreamService media) {
+    final vol = media.gameAudioVolume;
+    final percent = (vol * 100).toInt();
+    final isGameMode = media.isGameAudioMode;
+    final accentColor = isGameMode ? const Color(0xFF5865F2) : const Color(0xFF57F287);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1B1D23),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isGameMode ? const Color(0xFF5865F2).withValues(alpha: 0.5) : Colors.white10,
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isGameMode ? Icons.sports_esports_rounded : Icons.volume_up_rounded,
+                size: 17,
+                color: accentColor,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                isGameMode ? 'Game / Stream Audio' : 'Voice & Audio Volume',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: accentColor.withValues(alpha: 0.4), width: 1),
+                ),
+                child: Text(
+                  '$percent%',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: accentColor),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            isGameMode
+                ? 'Amplifies phone game sound so squad hears clearly even at low phone volume.'
+                : 'Adjust microphone and stream audio gain level.',
+            style: const TextStyle(fontSize: 9.5, color: Color(0xFF949BA4)),
+          ),
+          Row(
+            children: [
+              const Icon(Icons.volume_mute_rounded, size: 15, color: Color(0xFF949BA4)),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: accentColor,
+                    inactiveTrackColor: Colors.white12,
+                    thumbColor: accentColor,
+                    overlayColor: accentColor.withValues(alpha: 0.2),
+                    trackHeight: 3.5,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  ),
+                  child: Slider(
+                    value: vol,
+                    min: 0.0,
+                    max: 2.5,
+                    divisions: 25,
+                    onChanged: (val) {
+                      media.setGameAudioVolume(val);
+                    },
+                  ),
+                ),
+              ),
+              Icon(Icons.volume_up_rounded, size: 15, color: accentColor),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _presetChip('50%', 0.5, vol, media),
+              _presetChip('100%', 1.0, vol, media),
+              _presetChip('150%', 1.5, vol, media),
+              _presetChip('200%', 2.0, vol, media),
+              _presetChip('250%', 2.5, vol, media),
+              InkWell(
+                onTap: () => media.setGameAudioMode(!isGameMode),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                  decoration: BoxDecoration(
+                    color: isGameMode
+                        ? const Color(0xFF5865F2).withValues(alpha: 0.2)
+                        : Colors.white10,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isGameMode ? const Color(0xFF5865F2) : Colors.white24,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.bolt_rounded,
+                        size: 12,
+                        color: isGameMode ? const Color(0xFF5865F2) : const Color(0xFF949BA4),
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        isGameMode ? 'AEC Bypass ON' : 'AEC Normal',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: isGameMode ? const Color(0xFF5865F2) : const Color(0xFF949BA4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _presetChip(String label, double targetVal, double currentVal, MediaStreamService media) {
+    final isSelected = (currentVal - targetVal).abs() < 0.05;
+    return InkWell(
+      onTap: () => media.setGameAudioVolume(targetVal),
+      borderRadius: BorderRadius.circular(5),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF5865F2) : Colors.white10,
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF5865F2) : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 9.5,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? Colors.white : const Color(0xFF949BA4),
+          ),
+        ),
+      ),
     );
   }
 
