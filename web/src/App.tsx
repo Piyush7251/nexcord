@@ -292,7 +292,7 @@ export function App() {
       const myId = meRef.current?.id;
       if (!myId) return;
       callState.peerIds.forEach((pid) => {
-        if (pid !== myId) {
+        if (pid !== myId && nexconn.getPeerConnectionState(pid) !== 'connected') {
           // connectToPeer is idempotent: it only (re)negotiates when the link is missing, stalled or failed
           nexconn.connectToPeer(pid, callId).catch(() => {});
         }
@@ -900,6 +900,8 @@ export function App() {
   // ---------------------------------------------------------------- Voice & Call actions
   const joinVoiceChannel = async (srv: Server, ch: Channel) => {
     nexconn.unlockAudio();
+    const rtcConfig = await api.getWebRtcConfig().catch(() => null);
+    if (rtcConfig?.iceServers?.length) nexconn.setIceServers(rtcConfig.iceServers);
     const media = await nexconn.ensureLocalMedia(true, false);
     if (!media?.getAudioTracks().some((track) => track.readyState === 'live')) {
       const isSecure = typeof window !== 'undefined' ? window.isSecureContext : true;

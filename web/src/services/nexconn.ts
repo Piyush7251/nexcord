@@ -81,12 +81,19 @@ class NexconnService {
   private iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
     {
       urls: [
         'turn:openrelay.metered.ca:80',
         'turn:openrelay.metered.ca:443',
         'turn:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:5349',
+        'turns:openrelay.metered.ca:5349?transport=tcp',
       ],
       username: 'openrelayproject',
       credential: 'openrelayproject',
@@ -123,6 +130,17 @@ class NexconnService {
       return 'connected';
     }
     return pc.connectionState || 'new';
+  }
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const unlock = () => {
+        this.unlockAudio();
+      };
+      window.addEventListener('click', unlock, { passive: true });
+      window.addEventListener('touchstart', unlock, { passive: true });
+      window.addEventListener('keydown', unlock, { passive: true });
+    }
   }
 
   setCallbacks(cb: NexconnCallbacks) {
@@ -890,12 +908,20 @@ class NexconnService {
         `peer=${remoteUserId} state=${pc.connectionState}`,
         pc.connectionState === 'connected' ? 'ok' : 'info'
       );
-      if (pc.connectionState === 'disconnected') {
-        this.peerConnectingSince.set(remoteUserId, Date.now());
-      }
-      if (pc.connectionState === 'failed') {
+      if (pc.connectionState === 'connected') {
         this.peerConnectingSince.set(remoteUserId, 0);
-        this.connectToPeer(remoteUserId, this.currentCallId).catch(() => {});
+        this.unlockAudio();
+        const vel = this.remoteVideoElements.get(remoteUserId);
+        if (vel && vel.paused) vel.play().catch(() => {});
+      } else if (pc.connectionState === 'disconnected') {
+        this.peerConnectingSince.set(remoteUserId, Date.now());
+      } else if (pc.connectionState === 'failed') {
+        this.peerConnectingSince.set(remoteUserId, 0);
+        if (this.isOfferer(remoteUserId)) {
+          this.startOffer(remoteUserId, true, true).catch(() => {});
+        } else {
+          this.sendSignal(remoteUserId, { type: 'hello', rsid: '' });
+        }
       }
       this.notifyChange();
     };
@@ -908,8 +934,16 @@ class NexconnService {
         `peer=${remoteUserId} iceState=${pc.iceConnectionState}`,
         pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed' ? 'ok' : 'info'
       );
-      if (pc.iceConnectionState === 'failed') {
-        pc.restartIce?.();
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        this.unlockAudio();
+        const vel = this.remoteVideoElements.get(remoteUserId);
+        if (vel && vel.paused) vel.play().catch(() => {});
+      } else if (pc.iceConnectionState === 'failed') {
+        if (this.isOfferer(remoteUserId)) {
+          this.startOffer(remoteUserId, true, true).catch(() => {});
+        } else {
+          this.sendSignal(remoteUserId, { type: 'hello', rsid: '' });
+        }
       }
       this.notifyChange();
     };
@@ -1074,22 +1108,26 @@ class NexconnService {
     }
   }
 
-  private async startOffer(remoteUserId: string, force = false) {
+  private async startOffer(remoteUserId: string, force = false, iceRestart = false) {
     if (this.offerInFlight.has(remoteUserId)) return;
     this.offerInFlight.add(remoteUserId);
     try {
-      const cur = this.peers.get(remoteUserId);
-      if (!force && cur && cur.signalingState !== 'closed') {
+      let pc = this.peers.get(remoteUserId);
+      if (!force && pc && pc.signalingState !== 'closed') {
         const state = this.getPeerConnectionState(remoteUserId);
         const age = Date.now() - (this.peerConnectingSince.get(remoteUserId) || 0);
         if (state === 'connected') return;
-        if (cur.signalingState === 'have-local-offer' && age < 4000) return;
+        if (pc.signalingState === 'have-local-offer' && age < 4000) return;
       }
 
-      const pc = this.createPeerConnection(remoteUserId, true);
-      this.remoteSid.delete(remoteUserId);
+      // If no connection exists or if previous is completely closed, create fresh one
+      if (!pc || pc.signalingState === 'closed') {
+        pc = this.createPeerConnection(remoteUserId, true);
+        this.remoteSid.delete(remoteUserId);
+      }
+
       await this.attachLocalTracks(pc);
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
       if (this.peers.get(remoteUserId) !== pc) return;
       await pc.setLocalDescription(offer);
       if (this.peers.get(remoteUserId) !== pc) return;
@@ -1097,8 +1135,9 @@ class NexconnService {
         type: 'offer',
         sdp: { type: offer.type, sdp: offer.sdp },
         sid: this.localSid.get(remoteUserId),
+        seq: Date.now(),
       });
-      this.log('call', 'WebRTC.offerSent', `to=${remoteUserId}`, 'ok');
+      this.log('call', 'WebRTC.offerSent', `to=${remoteUserId} iceRestart=${iceRestart}`, 'ok');
       this.notifyChange();
     } catch (err: any) {
       this.log('call', 'WebRTC.offerError', err?.message || 'offer failed', 'warn');
@@ -1162,10 +1201,12 @@ class NexconnService {
     const body =
       signal.type === 'candidate'
         ? JSON.stringify(signal.candidate || '')
-        : signal.type === 'hello'
-          ? `${signal.rsid || ''}:${Math.floor(Date.now() / 2000)}`
-          : (typeof signal.sdp === 'string' ? signal.sdp : signal.sdp?.sdp || '');
-    const sigKey = `${fromUserId}:${signal.type}:${signal.sid || ''}:${body}`;
+        : signal.type === 'candidates'
+          ? JSON.stringify(signal.candidates || [])
+          : signal.type === 'hello'
+            ? `${signal.rsid || ''}:${Math.floor(Date.now() / 2000)}`
+            : (typeof signal.sdp === 'string' ? signal.sdp : signal.sdp?.sdp || '');
+    const sigKey = `${fromUserId}:${signal.type}:${signal.sid || ''}:${signal.seq || ''}:${body}`;
     if (this.seenSignals.has(sigKey)) return;
     this.seenSignals.add(sigKey);
     if (this.seenSignals.size > 800) {
@@ -1189,12 +1230,12 @@ class NexconnService {
         this.unlockAudio();
         const rsid: string = signal.sid || 'legacy';
         let pc = this.peers.get(fromUserId);
-        if (!pc || pc.signalingState === 'closed' || this.remoteSid.get(fromUserId) !== rsid) {
+        if (!pc || pc.signalingState === 'closed') {
           pc = this.createPeerConnection(fromUserId, false);
-          this.remoteSid.set(fromUserId, rsid);
         } else if (pc.signalingState !== 'stable') {
           await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit).catch(() => {});
         }
+        this.remoteSid.set(fromUserId, rsid);
         const descInit: RTCSessionDescriptionInit =
           typeof signal.sdp === 'object' && signal.sdp !== null
             ? signal.sdp

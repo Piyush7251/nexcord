@@ -235,12 +235,19 @@ app.get('/api/webrtc/config', auth, (req, res) => {
   const iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
     {
       urls: [
         'turn:openrelay.metered.ca:80',
         'turn:openrelay.metered.ca:443',
         'turn:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:5349',
+        'turns:openrelay.metered.ca:5349?transport=tcp',
       ],
       username: 'openrelayproject',
       credential: 'openrelayproject',
@@ -1355,7 +1362,7 @@ app.post('/api/webrtc/signal', auth, wrap(async (req, res) => {
   if (!pendingWebRtcSignals.has(to)) pendingWebRtcSignals.set(to, []);
   const q = pendingWebRtcSignals.get(to);
   q.push(payload);
-  if (q.length > 60) q.shift();
+  if (q.length > 200) q.shift();
 
   res.json({ ok: true });
 }));
