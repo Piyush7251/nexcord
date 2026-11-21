@@ -62,7 +62,11 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
     json = { error: text };
   }
   if (!res.ok) {
-    throw new Error(json.error || `Request failed (${res.status})`);
+    const err: any = new Error(json.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.cooldownSeconds = json.cooldownSeconds;
+    err.cooldownUntil = json.cooldownUntil;
+    throw err;
   }
   return json as T;
 }

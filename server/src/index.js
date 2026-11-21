@@ -14,6 +14,14 @@ import { db, save } from './db.js';
 import * as nx from './nexconn.js';
 import { sendSms, setFast2SmsRuntime, getFast2SmsRuntime, checkFast2SmsLiveStatus } from './sms.js';
 import { addLog, getLogs, clearLogs } from './logger.js';
+import {
+  getOtpStore,
+  normalizePhone,
+  isAdminPhone,
+  generateSecureOtp,
+  maskPhone,
+  OTP_CONFIG,
+} from './otpSecurity.js';
 const app = express();
 
 // Initialize dynamic settings on startup
@@ -288,25 +296,6 @@ app.post('/api/config/credentials', wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------- SMS OTP Store & Auth
-const otpStore = new Map(); // phone -> { code, expiresAt }
-const otpCooldownStore = new Map(); // phone -> { attempts: number, cooldownUntil: number }
-
-// Anti-Spam & Concurrency Protection
-const activePhoneDispatches = new Set(); // Concurrency Lock: Prevents simultaneous parallel requests for same phone
-const activeIpDispatches = new Set(); // Concurrency Lock: Prevents simultaneous parallel requests from same IP
-
-const ipRateLimits = new Map(); // ip -> { count: number, windowStart: number }
-const IP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
-const IP_MAX_REQUESTS = 3; // Max 3 OTP requests per IP per 10 minutes
-
-const phoneDailyLimits = new Map(); // phone -> { count: number, windowStart: number }
-const PHONE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
-const PHONE_MAX_DAILY = 5; // Max 5 OTP requests per phone number per day
-
-const globalOtpTimestamps = []; // Server-wide circuit breaker: timestamps of all OTP requests in last 10m
-const GLOBAL_WINDOW_MS = 10 * 60 * 1000;
-const GLOBAL_MAX_REQUESTS = 15; // Max 15 OTPs server-wide across all users per 10 minutes
-
 function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
@@ -317,230 +306,150 @@ function getClientIp(req) {
   return req.socket?.remoteAddress || req.ip || 'unknown-ip';
 }
 
-// Progressive OTP cooldown in minutes: 2, 3, 5, 10, 15, 20, 30 (caps at 30 min)
-const OTP_COOLDOWN_SCHEDULE_MINUTES = [2, 3, 5, 10, 15, 20, 30];
-
-function getCooldownSecondsForAttempt(attemptIndex) {
-  if (attemptIndex <= 0) return 2 * 60; // 2 minutes default for initial request
-  if (attemptIndex >= OTP_COOLDOWN_SCHEDULE_MINUTES.length) {
-    return 30 * 60; // capped at 30 minutes
-  }
-  return OTP_COOLDOWN_SCHEDULE_MINUTES[attemptIndex] * 60;
-}
-
-function sanitizePhone(raw) {
-  let s = String(raw || '').trim().replace(/[^\d+]/g, '');
-  if (!s.startsWith('+') && s.length === 10) s = `+91${s}`;
-  return s;
-}
-
-app.get('/api/auth/cooldown', (req, res) => {
-  const phone = sanitizePhone(req.query.phone || '');
-  if (!phone) return res.json({ cooldownSeconds: 0 });
-  const cd = otpCooldownStore.get(phone);
-  const now = Date.now();
-  if (cd && cd.cooldownUntil > now) {
-    return res.json({
-      cooldownSeconds: Math.ceil((cd.cooldownUntil - now) / 1000),
-      cooldownUntil: cd.cooldownUntil,
-      attempts: cd.attempts,
-    });
-  }
-  return res.json({ cooldownSeconds: 0 });
-});
+app.get('/api/auth/cooldown', wrap(async (req, res) => {
+  const phone = normalizePhone(req.query.phone || '');
+  if (!phone) return res.json({ cooldownSeconds: 0, active: false });
+  const store = await getOtpStore();
+  const cd = await store.getCooldown(phone);
+  res.json(cd);
+}));
 
 app.post('/api/auth/send-otp', wrap(async (req, res) => {
   const { phone } = req.body || {};
-  const clean = sanitizePhone(phone);
-  if (!clean || clean.replace(/\D/g, '').length < 8) {
-    throw new HttpError(400, 'Please enter a valid mobile number (at least 8-10 digits)');
+  const clean = normalizePhone(phone);
+  if (!clean) {
+    throw new HttpError(400, 'Invalid phone number format. Please provide a valid mobile number in E.164 format (e.g. +919876543210).');
   }
 
-  const digitsOnly = clean.replace(/\D/g, '');
-  const isAdmin = digitsOnly === '123456789' || digitsOnly === '91123456789' || clean === '123456789';
-
-  if (!isAdmin) {
-    let isValid = false;
-    if (clean.startsWith('+91')) {
-      const ten = clean.slice(3);
-      // Valid Indian mobile numbers are 10 digits starting with 6, 7, 8, or 9
-      isValid = /^[6-9]\d{9}$/.test(ten) && !/^(\d)\1{9}$/.test(ten);
-    } else {
-      // General international: 10-15 digits
-      isValid = /^\+[1-9]\d{9,14}$/.test(clean);
-    }
-
-    if (!isValid) {
-      addLog('warn', 'AUTH', `Rejected invalid mobile number: ${clean}`);
-      throw new HttpError(400, 'The phone number entered is incorrect or invalid. Please check the number and try again later.');
-    }
-  }
-
+  const isAdmin = isAdminPhone(clean);
   const clientIp = getClientIp(req);
-  const now = Date.now();
+  const accountId = req.user?.id || null;
+  const store = await getOtpStore();
 
-  // 1. Anti-Concurrency Lock: Prevent simultaneous parallel requests for same phone or from same IP
-  if (activePhoneDispatches.has(clean)) {
-    addLog('warn', 'SECURITY', `Blocked concurrent OTP flood attempt for phone ${clean}`);
+  // 1. Concurrency Lock: Prevents simultaneous parallel requests
+  const phoneLockKey = `lock:ph:${clean}`;
+  const ipLockKey = `lock:ip:${clientIp}`;
+
+  const gotPhoneLock = await store.acquireLock(phoneLockKey, 15000);
+  if (!gotPhoneLock) {
+    addLog('warn', 'SECURITY', `Blocked simultaneous OTP request for ${maskPhone(clean)}`);
     throw new HttpError(429, 'An OTP verification code request is already in progress for this phone. Please wait a moment.');
   }
-  if (activeIpDispatches.has(clientIp) && !isAdmin) {
-    addLog('warn', 'SECURITY', `Blocked concurrent OTP flood attempt from IP ${clientIp}`);
-    throw new HttpError(429, 'A request is already in progress from your network. Please wait.');
-  }
 
-  // 2. Global Circuit-Breaker: Max 15 OTP requests across the whole server per 10 minutes
-  while (globalOtpTimestamps.length > 0 && globalOtpTimestamps[0] < now - GLOBAL_WINDOW_MS) {
-    globalOtpTimestamps.shift();
+  let gotIpLock = false;
+  if (!isAdmin) {
+    gotIpLock = await store.acquireLock(ipLockKey, 15000);
+    if (!gotIpLock) {
+      await store.releaseLock(phoneLockKey);
+      addLog('warn', 'SECURITY', `Blocked simultaneous OTP request from IP ${clientIp}`);
+      throw new HttpError(429, 'A request is already in progress from your network. Please wait.');
+    }
   }
-  if (globalOtpTimestamps.length >= GLOBAL_MAX_REQUESTS && !isAdmin) {
-    addLog('error', 'SECURITY', `Global OTP circuit-breaker active (${globalOtpTimestamps.length} requests in 10m)`);
-    throw new HttpError(429, 'High OTP traffic detected across the system. For security, please try again in 5 minutes.');
-  }
-
-  // 3. Per-IP Rate Limit: Max 3 OTP requests per 10 minutes from this IP
-  let ipRecord = ipRateLimits.get(clientIp);
-  if (!ipRecord || (now - ipRecord.windowStart) > IP_WINDOW_MS) {
-    ipRecord = { count: 0, windowStart: now };
-    ipRateLimits.set(clientIp, ipRecord);
-  }
-  if (ipRecord.count >= IP_MAX_REQUESTS && !isAdmin) {
-    const waitSec = Math.ceil((ipRecord.windowStart + IP_WINDOW_MS - now) / 1000);
-    const m = Math.floor(waitSec / 60);
-    const s = waitSec % 60;
-    addLog('warn', 'SECURITY', `IP rate limit exceeded for ${clientIp} (${ipRecord.count}/${IP_MAX_REQUESTS} requests)`);
-    throw new HttpError(429, `Too many OTP requests from your network. Please wait ${m}m ${s}s before requesting again.`);
-  }
-
-  // 4. Per-Phone Daily Cap: Max 5 OTP requests per phone number in 24 hours
-  let phoneDaily = phoneDailyLimits.get(clean);
-  if (!phoneDaily || (now - phoneDaily.windowStart) > PHONE_DAILY_WINDOW_MS) {
-    phoneDaily = { count: 0, windowStart: now };
-    phoneDailyLimits.set(clean, phoneDaily);
-  }
-  if (phoneDaily.count >= PHONE_MAX_DAILY && !isAdmin) {
-    addLog('warn', 'SECURITY', `Daily OTP cap reached for ${clean} (${phoneDaily.count}/${PHONE_MAX_DAILY})`);
-    throw new HttpError(429, 'Daily OTP request limit reached for this number (5/5). Please try again in 24 hours.');
-  }
-
-  // 5. Progressive Cooldown Check: 2m, 3m, 5m, 10m, 15m, 20m, 30m
-  const cooldownRecord = otpCooldownStore.get(clean);
-  if (cooldownRecord && cooldownRecord.cooldownUntil > now && !isAdmin) {
-    const remainingSec = Math.ceil((cooldownRecord.cooldownUntil - now) / 1000);
-    const m = Math.floor(remainingSec / 60);
-    const s = remainingSec % 60;
-    const formatted = m > 0 ? `${m}m ${s}s` : `${s}s`;
-    addLog('warn', 'AUTH', `OTP request throttled for ${clean}. Cooldown remaining: ${formatted}`);
-    return res.status(429).json({
-      ok: false,
-      error: `Cooldown active. Please wait ${formatted} before requesting another code.`,
-      cooldownSeconds: remainingSec,
-      cooldownUntil: cooldownRecord.cooldownUntil,
-    });
-  }
-
-  if (isAdmin) {
-    otpStore.set(clean, { code: '123456', expiresAt: Date.now() + 60 * 60 * 1000 });
-    addLog('info', 'AUTH', 'Admin OTP 123456 generated for 123456789');
-    return res.json({
-      ok: true,
-      phone: clean,
-      provider: 'Nexcord Admin Gate',
-      deliveredToCarrier: true,
-      cooldownSeconds: 120,
-      nextCooldownSeconds: 180,
-      cooldownUntil: Date.now() + 120 * 1000,
-      message: 'Admin authorization code: 123456',
-      isAdmin: true,
-    });
-  }
-
-  // Acquire concurrency locks
-  activePhoneDispatches.add(clean);
-  activeIpDispatches.add(clientIp);
 
   try {
-    // Record IP, Daily, and Global usage
-    ipRecord.count += 1;
-    phoneDaily.count += 1;
-    globalOtpTimestamps.push(now);
+    // 2. Cooldown check (backend enforced, default 30 seconds)
+    if (!isAdmin) {
+      const cooldownStatus = await store.getCooldown(clean);
+      if (cooldownStatus.active) {
+        addLog('warn', 'AUTH', `OTP request throttled for ${maskPhone(clean)}. Cooldown: ${cooldownStatus.remainingSeconds}s remaining`);
+        return res.status(429).json({
+          ok: false,
+          error: `Cooldown active. Please wait ${cooldownStatus.remainingSeconds}s before requesting a new code.`,
+          cooldownSeconds: cooldownStatus.remainingSeconds,
+          cooldownUntil: cooldownStatus.cooldownUntil,
+        });
+      }
 
-    // Calculate progressive cooldown duration based on attempt count
-    const currentAttempts = cooldownRecord ? cooldownRecord.attempts : 0;
-    const cooldownSec = getCooldownSecondsForAttempt(currentAttempts);
-    const cooldownUntil = now + cooldownSec * 1000;
+      // 3. Rate limits (phone hourly/daily, IP window/daily, global circuit-breaker, spending budget)
+      const rateLimitCheck = await store.checkRateLimits(clean, clientIp, accountId);
+      if (!rateLimitCheck.allowed) {
+        addLog('warn', 'SECURITY', `Rate limit triggered for ${maskPhone(clean)} / IP ${clientIp}: ${rateLimitCheck.reason}`);
+        return res.status(429).json({
+          ok: false,
+          error: rateLimitCheck.reason || 'Rate limit exceeded.',
+          retryAfter: rateLimitCheck.retryAfter,
+        });
+      }
+    }
 
-    // Record progressive cooldown tracking
-    otpCooldownStore.set(clean, {
-      attempts: currentAttempts + 1,
-      cooldownUntil,
-    });
+    if (isAdmin) {
+      await store.storeOtp(clean, '123456', 3600);
+      addLog('info', 'AUTH', 'Admin master pass 123456 generated');
+      return res.json({
+        ok: true,
+        phone: clean,
+        provider: 'Nexcord Admin Gate',
+        deliveredToCarrier: true,
+        cooldownSeconds: OTP_CONFIG.cooldownSeconds,
+        cooldownUntil: Date.now() + OTP_CONFIG.cooldownSeconds * 1000,
+        message: 'Admin authorization code: 123456',
+        isAdmin: true,
+      });
+    }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStore.set(clean, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
-    addLog('info', 'AUTH', `Sending OTP to ${clean} from IP ${clientIp} (Attempt: ${currentAttempts + 1}, Cooldown: ${cooldownSec / 60}m)`);
+    // 4. Generate cryptographically secure OTP
+    const code = generateSecureOtp();
 
+    // 5. Dispatch SMS via Fast2SMS with financial protection
     const smsResult = await sendSms({ phone: clean, code });
 
-    console.log(`\n======================================================`);
-    console.log(`📲 [SMS OTP] To: ${clean} | Code: ${code} | Provider: ${smsResult.provider} | IP: ${clientIp} | Cooldown: ${cooldownSec}s`);
-    console.log(`======================================================\n`);
+    if (smsResult.deliveredToCarrier || smsResult.provider.includes('Mocked')) {
+      // Successful delivery:
+      // A. Enforce backend cooldown (30 seconds)
+      const cooldownUntil = await store.setCooldown(clean, OTP_CONFIG.cooldownSeconds);
+      // B. Record rate limits and budget spending
+      await store.recordOtpSent(clean, clientIp, accountId, OTP_CONFIG.costPerMessageInr);
+      // C. Store hashed OTP with expiration TTL (5 minutes)
+      await store.storeOtp(clean, code, OTP_CONFIG.otpTtlSeconds);
 
-    res.json({
-      ok: true,
-      phone: clean,
-      provider: smsResult.provider,
-      deliveredToCarrier: smsResult.deliveredToCarrier,
-      cooldownSeconds: cooldownSec,
-      nextCooldownSeconds: getCooldownSecondsForAttempt(currentAttempts + 1),
-      cooldownUntil,
-      message: smsResult.deliveredToCarrier
-        ? `Verification code sent via WhatsApp to ${clean}`
-        : (smsResult.details ? `Fast2SMS: ${smsResult.details}` : `Verification code sent to ${clean}`),
-    });
+      addLog('success', 'AUTH', `OTP dispatched to ${maskPhone(clean)} (Cooldown: ${OTP_CONFIG.cooldownSeconds}s)`);
+
+      res.json({
+        ok: true,
+        phone: clean,
+        provider: smsResult.provider,
+        deliveredToCarrier: true,
+        cooldownSeconds: OTP_CONFIG.cooldownSeconds,
+        cooldownUntil,
+        message: `Verification code sent via WhatsApp to ${clean}`,
+      });
+    } else {
+      // Provider failed or rejected (do not charge user or lock out cooldown)
+      addLog('warn', 'FAST2SMS', `SMS dispatch failed for ${maskPhone(clean)}: ${smsResult.details}`);
+      res.status(502).json({
+        ok: false,
+        deliveredToCarrier: false,
+        provider: smsResult.provider,
+        error: smsResult.details || 'SMS provider delivery error',
+        message: smsResult.details || 'Failed to send WhatsApp verification code',
+      });
+    }
   } finally {
-    // Release concurrency locks
-    activePhoneDispatches.delete(clean);
-    activeIpDispatches.delete(clientIp);
+    await store.releaseLock(phoneLockKey);
+    if (gotIpLock) await store.releaseLock(ipLockKey);
   }
 }));
 
 app.post('/api/auth/verify-otp', wrap(async (req, res) => {
   const { phone, otp, displayName } = req.body || {};
-  const clean = sanitizePhone(phone);
-  const code = String(otp || '').trim();
-  if (!clean) throw new HttpError(400, 'Mobile number is required');
-  if (!code) throw new HttpError(400, 'Verification code is required');
+  const clean = normalizePhone(phone);
+  const candidate = String(otp || '').trim();
+  if (!clean) throw new HttpError(400, 'A valid mobile number is required');
+  if (!candidate) throw new HttpError(400, 'Verification code is required');
 
   const digitsOnly = clean.replace(/\D/g, '');
-  const isAdmin = digitsOnly === '123456789' || digitsOnly === '91123456789' || clean === '123456789';
+  const isAdmin = isAdminPhone(clean);
+  const store = await getOtpStore();
 
-  if (!isAdmin) {
-    let isValid = false;
-    if (clean.startsWith('+91')) {
-      const ten = clean.slice(3);
-      // Valid Indian mobile numbers are 10 digits starting with 6, 7, 8, or 9
-      isValid = /^[6-9]\d{9}$/.test(ten) && !/^(\d)\1{9}$/.test(ten);
-    } else {
-      // General international: 10-15 digits
-      isValid = /^\+[1-9]\d{9,14}$/.test(clean);
-    }
-
-    if (!isValid) {
-      addLog('warn', 'AUTH', `Rejected invalid mobile number: ${clean}`);
-      throw new HttpError(400, 'The phone number entered is incorrect or invalid. Please check the number and try again later.');
+  if (isAdmin && candidate === '123456') {
+    // Admin master pass
+  } else {
+    const result = await store.verifyOtp(clean, candidate);
+    if (!result.valid) {
+      addLog('warn', 'AUTH', `Failed OTP verification attempt for ${maskPhone(clean)}: ${result.reason}`);
+      throw new HttpError(400, result.reason || 'Invalid or expired verification code');
     }
   }
-
-  const rec = otpStore.get(clean);
-  const isValid = (rec && rec.code === code && rec.expiresAt > Date.now()) || (isAdmin && code === '123456') || code === '123456';
-  if (!isValid) {
-    addLog('warn', 'AUTH', `Failed OTP verification attempt for ${clean}`);
-    throw new HttpError(400, 'Invalid or expired verification code. Please check the code or tap Resend Code.');
-  }
-  otpStore.delete(clean);
-  // Reset cooldown back to default 2 minutes after successful login
-  otpCooldownStore.delete(clean);
 
   const d = db();
   let user = Object.values(d.users).find((u) => u.phone === clean || (isAdmin && (u.phone === clean || u.username === 'admin')));

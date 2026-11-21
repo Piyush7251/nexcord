@@ -104,11 +104,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
       if (serverUrl.trim()) setApiBase(serverUrl.trim());
       const res = await api.sendOtp(fullPhone);
       setMobileStep('otp');
-      const cd = res.cooldownSeconds || 120;
+      const cd = res.cooldownSeconds ?? 30;
       setCooldown(cd);
     } catch (e: any) {
       setErr(e?.message || 'Failed to send verification SMS');
-      if (e?.cooldownSeconds) {
+      if (e?.cooldownSeconds && e.cooldownSeconds > 0) {
         setCooldown(e.cooldownSeconds);
       }
     } finally {

@@ -9,6 +9,11 @@ let lastWalletFetch = 0;
 let dynamicApiKey = null;
 let dynamicPhoneId = null;
 let dynamicMessageId = null;
+let mockSmsHandler = null;
+
+export function setMockSmsHandler(handler) {
+  mockSmsHandler = handler;
+}
 
 export async function getFast2SmsWalletBalance(apiKey) {
   const now = Date.now();
@@ -163,6 +168,15 @@ async function getWabaConfig(apiKey) {
 }
 
 export async function sendSms({ phone, code }) {
+  if (mockSmsHandler || process.env.NODE_ENV === 'test' || process.env.MOCK_SMS === 'true') {
+    if (mockSmsHandler) return await mockSmsHandler({ phone, code });
+    return {
+      provider: 'Fast2SMS WhatsApp (Mocked)',
+      deliveredToCarrier: true,
+      details: `Mocked delivery to ${phone}`,
+    };
+  }
+
   const cleanDigits = phone.replace(/\D/g, '');
   const indianMobile = cleanDigits.length === 12 && cleanDigits.startsWith('91')
     ? cleanDigits.slice(2)
