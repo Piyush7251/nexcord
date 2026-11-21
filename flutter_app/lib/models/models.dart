@@ -171,6 +171,33 @@ class VoiceJoinResult {
       );
 }
 
+class ServerPermissions {
+  final bool admin;
+  final bool manageChannels;
+  final bool manageRoles;
+  final bool kick;
+  final bool ban;
+  final bool canPromote;
+
+  ServerPermissions({
+    this.admin = false,
+    this.manageChannels = false,
+    this.manageRoles = false,
+    this.kick = false,
+    this.ban = false,
+    this.canPromote = false,
+  });
+
+  factory ServerPermissions.fromJson(Map<String, dynamic>? j) => ServerPermissions(
+        admin: j?['admin'] == true,
+        manageChannels: j?['manageChannels'] == true,
+        manageRoles: j?['manageRoles'] == true,
+        kick: j?['kick'] == true,
+        ban: j?['ban'] == true,
+        canPromote: j?['canPromote'] == true,
+      );
+}
+
 class ServerRole {
   final String id;
   final String name;
@@ -203,6 +230,8 @@ class NexcordServer {
   final String id;
   final String name;
   final String iconColor;
+  final String iconUrl;
+  final String bannerUrl;
   final String description;
   final String ownerId;
   final String inviteCode;
@@ -212,11 +241,14 @@ class NexcordServer {
   final List<ServerMember> members;
   final Map<String, List<VoiceParticipant>> voiceStates;
   final Map<String, List<Map<String, dynamic>>> pins;
+  final ServerPermissions? myPermissions;
 
   NexcordServer({
     required this.id,
     required this.name,
     required this.iconColor,
+    this.iconUrl = '',
+    this.bannerUrl = '',
     required this.description,
     required this.ownerId,
     required this.inviteCode,
@@ -226,6 +258,7 @@ class NexcordServer {
     required this.members,
     required this.voiceStates,
     required this.pins,
+    this.myPermissions,
   });
 
   factory NexcordServer.fromJson(Map<String, dynamic> j) {
@@ -249,6 +282,8 @@ class NexcordServer {
       id: j['id']?.toString() ?? '',
       name: j['name']?.toString() ?? 'Server',
       iconColor: j['iconColor']?.toString() ?? '#5865F2',
+      iconUrl: j['iconUrl']?.toString() ?? '',
+      bannerUrl: j['bannerUrl']?.toString() ?? '',
       description: j['description']?.toString() ?? '',
       ownerId: j['ownerId']?.toString() ?? '',
       inviteCode: j['inviteCode']?.toString() ?? '',
@@ -266,6 +301,9 @@ class NexcordServer {
           .toList(),
       voiceStates: vs,
       pins: pinsMap,
+      myPermissions: j['myPermissions'] is Map<String, dynamic>
+          ? ServerPermissions.fromJson(j['myPermissions'] as Map<String, dynamic>)
+          : null,
     );
   }
 }

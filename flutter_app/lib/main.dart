@@ -598,7 +598,12 @@ class _NexcordHomeState extends State<NexcordHome> {
                 );
               },
             ),
-          if (_section == 'chat' && !_homeMode && srv != null)
+          if (_section == 'chat' && !_homeMode && srv != null) ...[
+            IconButton(
+              icon: const Icon(Icons.settings_rounded),
+              tooltip: 'Server Settings',
+              onPressed: () => _showServerSettingsSheet(context, srv),
+            ),
             Builder(
               builder: (ctx) => IconButton(
                 icon: const Icon(Icons.people_alt_rounded),
@@ -606,6 +611,7 @@ class _NexcordHomeState extends State<NexcordHome> {
                 onPressed: () => Scaffold.of(ctx).openEndDrawer(),
               ),
             ),
+          ],
         ],
       ),
       drawer: _buildLeftDrawer(context, srv),
@@ -697,10 +703,24 @@ class _NexcordHomeState extends State<NexcordHome> {
                               final first = s.channels.where((c) => c.type != 'voice').firstOrNull ?? s.channels.firstOrNull;
                               if (first != null) _selectChannel(s, first);
                             },
-                            child: Text(
-                              initials.length > 2 ? initials.substring(0, 2) : initials,
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
+                            child: s.iconUrl.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(act ? 14 : 20),
+                                    child: Image.network(
+                                      s.iconUrl,
+                                      width: 44,
+                                      height: 44,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Text(
+                                        initials.length > 2 ? initials.substring(0, 2) : initials,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                      ),
+                                    ),
+                                  )
+                                : Text(
+                                    initials.length > 2 ? initials.substring(0, 2) : initials,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
                           ),
                         );
                       }).toList(),
@@ -759,6 +779,11 @@ class _NexcordHomeState extends State<NexcordHome> {
                           ),
                         ),
                         if (!_homeMode && srv != null) ...[
+                          IconButton(
+                            icon: const Icon(Icons.settings_rounded, size: 18, color: Color(0xFF949BA4)),
+                            tooltip: 'Server Settings',
+                            onPressed: () => _showServerSettingsSheet(context, srv),
+                          ),
                           IconButton(
                             icon: const Icon(Icons.share_rounded, size: 18, color: Color(0xFF5865F2)),
                             tooltip: 'Share Server Link & ID',
@@ -1700,6 +1725,447 @@ class _NexcordHomeState extends State<NexcordHome> {
                       ),
                     ],
                   ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showServerSettingsSheet(BuildContext context, NexcordServer srv) {
+    final nameCtrl = TextEditingController(text: srv.name);
+    final descCtrl = TextEditingController(text: srv.description);
+    final iconUrlCtrl = TextEditingController(text: srv.iconUrl);
+    final bannerUrlCtrl = TextEditingController(text: srv.bannerUrl);
+    String selectedColor = srv.iconColor.isNotEmpty ? srv.iconColor : '#5865F2';
+    int currentTab = 0; // 0 = Overview, 1 = Members & Roles
+    bool saving = false;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF2B2D31),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final isOwner = srv.ownerId == _me!.id;
+            final canPromote = isOwner || (srv.myPermissions?.canPromote == true);
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 14,
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(ctx).size.height * 0.82,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          const Icon(Icons.settings_rounded, color: Color(0xFF5865F2), size: 22),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '${srv.name} — Settings',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, color: Color(0xFF949BA4)),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      // Tab Bar
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setSheetState(() => currentTab = 0),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: currentTab == 0 ? const Color(0xFF5865F2) : Colors.transparent,
+                                      width: 2.5,
+                                    ),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Overview & Profile',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: currentTab == 0 ? Colors.white : const Color(0xFF949BA4),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setSheetState(() => currentTab = 1),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: currentTab == 1 ? const Color(0xFF5865F2) : Colors.transparent,
+                                      width: 2.5,
+                                    ),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Members & Roles (${srv.members.length})',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: currentTab == 1 ? Colors.white : const Color(0xFF949BA4),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Expanded(
+                        child: currentTab == 0
+                            ? ListView(
+                                children: [
+                                  // Live Preview Card
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 16),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E1F22),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.white10),
+                                    ),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        if (bannerUrlCtrl.text.trim().isNotEmpty)
+                                          Image.network(
+                                            bannerUrlCtrl.text.trim(),
+                                            height: 60,
+                                            width: double.infinity,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => Container(height: 30, color: hexToColor(selectedColor)),
+                                          )
+                                        else
+                                          Container(height: 30, color: hexToColor(selectedColor)),
+                                        Padding(
+                                          padding: const EdgeInsets.all(12),
+                                          child: Row(
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius: BorderRadius.circular(10),
+                                                child: iconUrlCtrl.text.trim().isNotEmpty
+                                                    ? Image.network(
+                                                        iconUrlCtrl.text.trim(),
+                                                        width: 44,
+                                                        height: 44,
+                                                        fit: BoxFit.cover,
+                                                        errorBuilder: (_, __, ___) => Container(
+                                                          width: 44,
+                                                          height: 44,
+                                                          color: hexToColor(selectedColor),
+                                                          alignment: Alignment.center,
+                                                          child: Text(
+                                                            (nameCtrl.text.isNotEmpty ? nameCtrl.text[0] : 'S').toUpperCase(),
+                                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                                          ),
+                                                        ),
+                                                      )
+                                                    : Container(
+                                                        width: 44,
+                                                        height: 44,
+                                                        color: hexToColor(selectedColor),
+                                                        alignment: Alignment.center,
+                                                        child: Text(
+                                                          (nameCtrl.text.isNotEmpty ? nameCtrl.text[0] : 'S').toUpperCase(),
+                                                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                                        ),
+                                                      ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      nameCtrl.text.isNotEmpty ? nameCtrl.text : 'Server Name',
+                                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                                                    ),
+                                                    if (descCtrl.text.isNotEmpty)
+                                                      Text(
+                                                        descCtrl.text,
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow.ellipsis,
+                                                        style: const TextStyle(fontSize: 11.5, color: Color(0xFF949BA4)),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Name Field
+                                  const Text('SERVER NAME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
+                                  const SizedBox(height: 6),
+                                  TextField(
+                                    controller: nameCtrl,
+                                    onChanged: (_) => setSheetState(() {}),
+                                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                                    decoration: InputDecoration(
+                                      filled: true,
+                                      fillColor: const Color(0xFF1E1F22),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  // Description Field
+                                  const Text('SERVER DESCRIPTION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
+                                  const SizedBox(height: 6),
+                                  TextField(
+                                    controller: descCtrl,
+                                    maxLines: 2,
+                                    onChanged: (_) => setSheetState(() {}),
+                                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: 'What is this server about?',
+                                      hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                                      filled: true,
+                                      fillColor: const Color(0xFF1E1F22),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  // Icon URL Field
+                                  const Text('SERVER ICON URL (IMAGE / PICTURE)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
+                                  const SizedBox(height: 6),
+                                  TextField(
+                                    controller: iconUrlCtrl,
+                                    onChanged: (_) => setSheetState(() {}),
+                                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: 'https://example.com/logo.png',
+                                      hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                                      filled: true,
+                                      fillColor: const Color(0xFF1E1F22),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  // Banner URL Field
+                                  const Text('SERVER BANNER URL (OPTIONAL)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF949BA4))),
+                                  const SizedBox(height: 6),
+                                  TextField(
+                                    controller: bannerUrlCtrl,
+                                    onChanged: (_) => setSheetState(() {}),
+                                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: 'https://example.com/banner.png',
+                                      hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                                      filled: true,
+                                      fillColor: const Color(0xFF1E1F22),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 18),
+                                  // Save Button
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF5865F2),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 13),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                    onPressed: saving
+                                        ? null
+                                        : () async {
+                                            setSheetState(() => saving = true);
+                                            try {
+                                              await _api.updateServer(
+                                                srv.id,
+                                                name: nameCtrl.text.trim(),
+                                                description: descCtrl.text.trim(),
+                                                iconUrl: iconUrlCtrl.text.trim(),
+                                                bannerUrl: bannerUrlCtrl.text.trim(),
+                                                iconColor: selectedColor,
+                                              );
+                                              await _syncNow();
+                                              Navigator.pop(ctx);
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Server settings updated! ✨')),
+                                              );
+                                            } catch (e) {
+                                              setSheetState(() => saving = false);
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(content: Text('Failed to update: $e')),
+                                              );
+                                            }
+                                          },
+                                    child: Text(saving ? 'Saving...' : 'Save Changes', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  ),
+                                ],
+                              )
+                            : ListView(
+                                children: [
+                                  // Role hierarchy banner
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E1F22),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.white10),
+                                    ),
+                                    child: Text(
+                                      isOwner
+                                          ? '👑 You are the Leader. You can promote members to Co-Leader, Elder, or demote them.'
+                                          : canPromote
+                                              ? '⭐ You are a Co-Leader. You can promote members to Elder or demote to Member.'
+                                              : 'Server member hierarchy and permissions.',
+                                      style: const TextStyle(fontSize: 12, color: Color(0xFFB5BAC1)),
+                                    ),
+                                  ),
+                                  ...srv.members.map((m) {
+                                    final u = m.userId == _me!.id ? _me! : _users[m.userId];
+                                    final uName = u?.displayName ?? m.userId;
+                                    final isOwnerTarget = m.userId == srv.ownerId;
+                                    final isSelf = m.userId == _me!.id;
+
+                                    // Determine role: leader, co-leader, elder, or member
+                                    final currentRole = isOwnerTarget
+                                        ? 'leader'
+                                        : m.roles.contains('co-leader')
+                                            ? 'co-leader'
+                                            : m.roles.contains('elder')
+                                                ? 'elder'
+                                                : 'member';
+
+                                    final roleBadge = isOwnerTarget
+                                        ? '👑 Leader'
+                                        : currentRole == 'co-leader'
+                                            ? '⭐ Co-Leader'
+                                            : currentRole == 'elder'
+                                                ? '🛡️ Elder'
+                                                : '👤 Member';
+
+                                    final badgeColor = isOwnerTarget
+                                        ? const Color(0xFFFEE75C)
+                                        : currentRole == 'co-leader'
+                                            ? const Color(0xFFEB459E)
+                                            : currentRole == 'elder'
+                                                ? const Color(0xFF57F287)
+                                                : const Color(0xFF949BA4);
+
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF1E1F22),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 16,
+                                            backgroundColor: u?.color ?? const Color(0xFF5865F2),
+                                            child: Text((uName.isNotEmpty ? uName[0] : 'U').toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(uName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white)),
+                                                Text(roleBadge, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: badgeColor)),
+                                              ],
+                                            ),
+                                          ),
+                                          if (!isOwnerTarget && !isSelf && canPromote)
+                                            PopupMenuButton<String>(
+                                              tooltip: 'Change Role',
+                                              icon: const Icon(Icons.shield_outlined, size: 19, color: Color(0xFF949BA4)),
+                                              color: const Color(0xFF2B2D31),
+                                              onSelected: (newRole) async {
+                                                try {
+                                                  await _api.setMemberRole(srv.id, m.userId, newRole);
+                                                  await _syncNow();
+                                                  setSheetState(() {});
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(content: Text('Updated $uName to $newRole! 🛡️')),
+                                                  );
+                                                } catch (e) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(content: Text('Failed: $e')),
+                                                  );
+                                                }
+                                              },
+                                              itemBuilder: (context) => [
+                                                if (isOwner)
+                                                  const PopupMenuItem(
+                                                    value: 'co-leader',
+                                                    child: Text('⭐ Promote to Co-Leader', style: TextStyle(color: Color(0xFFEB459E), fontWeight: FontWeight.bold)),
+                                                  ),
+                                                const PopupMenuItem(
+                                                  value: 'elder',
+                                                  child: Text('🛡️ Promote to Elder', style: TextStyle(color: Color(0xFF57F287), fontWeight: FontWeight.bold)),
+                                                ),
+                                                const PopupMenuItem(
+                                                  value: 'member',
+                                                  child: Text('👤 Set as Regular Member', style: TextStyle(color: Colors.white70)),
+                                                ),
+                                              ],
+                                            ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );

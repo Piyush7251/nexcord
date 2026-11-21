@@ -836,9 +836,11 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
 interface ServerSettingsModalProps {
   server: Server;
   me: User;
+  users?: Record<string, User>;
   onUpdateServer: (patch: { name?: string; description?: string; iconColor?: string; iconUrl?: string; bannerUrl?: string }) => Promise<void>;
   onCreateRole: (name: string, color: string, perms: Record<string, boolean>) => Promise<void>;
   onDeleteRole: (roleId: string) => Promise<void>;
+  onSetRole?: (userId: string, roleId: string) => Promise<void>;
   onRegenInvite: () => Promise<void>;
   onDeleteServer: () => Promise<void>;
   onClose: () => void;
@@ -847,14 +849,16 @@ interface ServerSettingsModalProps {
 export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   server,
   me,
+  users = {},
   onUpdateServer,
   onCreateRole,
   onDeleteRole,
+  onSetRole,
   onRegenInvite,
   onDeleteServer,
   onClose,
 }) => {
-  const [tab, setTab] = useState<'overview' | 'roles' | 'invites'>('overview');
+  const [tab, setTab] = useState<'overview' | 'roles' | 'members' | 'invites'>('overview');
   const [name, setName] = useState(server.name);
   const [description, setDescription] = useState(server.description || '');
   const [iconColor, setIconColor] = useState(server.iconColor || '#5865F2');
@@ -952,8 +956,11 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
           <button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
             Overview & Profile
           </button>
+          <button type="button" className={tab === 'members' ? 'active' : ''} onClick={() => setTab('members')}>
+            Members & Roles ({server.members.length})
+          </button>
           <button type="button" className={tab === 'roles' ? 'active' : ''} onClick={() => setTab('roles')}>
-            Roles ({server.roles.length})
+            Hierarchy & Roles
           </button>
           <button type="button" className={tab === 'invites' ? 'active' : ''} onClick={() => setTab('invites')}>
             Invites & ID
@@ -1214,17 +1221,184 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
             </>
           )}
 
+          {tab === 'members' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12.5, color: '#b5bac1', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Crown size={15} style={{ color: '#fee75c' }} />
+                <span>
+                  {server.ownerId === me.id
+                    ? 'You are the Group Leader. You can promote members to Co-Leader, Elder, or demote them.'
+                    : server.myPermissions?.canPromote
+                    ? 'You are a Co-Leader. You can promote members to Elder or demote to Member.'
+                    : 'Group members and their assigned roles in this server.'}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 340, overflowY: 'auto' }}>
+                {server.members.map((m) => {
+                  const u = users[m.userId] || {
+                    id: m.userId,
+                    username: m.userId,
+                    displayName: m.userId,
+                    avatarColor: '#5865F2',
+                    status: 'offline',
+                    createdAt: 0,
+                  };
+                  const isOwnerTarget = m.userId === server.ownerId;
+                  const isSelf = m.userId === me.id;
+
+                  // Find primary role
+                  const currentRoleId = isOwnerTarget
+                    ? 'leader'
+                    : m.roles.find((r) => r === 'leader' || r === 'co-leader' || r === 'elder') || 'member';
+
+                  return (
+                    <div
+                      key={m.userId}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        padding: '8px 12px',
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        borderRadius: 8,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 160, flex: 1 }}>
+                        <Avatar user={u} size={36} />
+                        <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 600, fontSize: 13.5, color: '#f2f3f5' }}>
+                              {u.displayName || u.username} {isSelf ? '(You)' : ''}
+                            </span>
+                            {isOwnerTarget && <span title="Group Leader"><Crown size={13} style={{ color: '#fee75c' }} /></span>}
+                            {currentRoleId === 'co-leader' && <span title="Co-Leader"><Star size={13} style={{ color: '#eb459e' }} /></span>}
+                            {currentRoleId === 'elder' && <span title="Elder"><Shield size={13} style={{ color: '#57f287' }} /></span>}
+                          </div>
+                          <span style={{ fontSize: 11, color: '#949ba4' }}>@{u.username}</span>
+                        </div>
+                      </div>
+
+                      {/* Role selection pills */}
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {isOwnerTarget ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: '#fee75c',
+                              background: 'rgba(254, 231, 92, 0.15)',
+                              padding: '4px 10px',
+                              borderRadius: 12,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Crown size={12} /> Leader
+                          </span>
+                        ) : (
+                          [
+                            { id: 'co-leader', label: 'Co-Leader', icon: '⭐', color: '#eb459e', allowed: server.ownerId === me.id },
+                            { id: 'elder', label: 'Elder', icon: '🛡️', color: '#57f287', allowed: server.ownerId === me.id || Boolean(server.myPermissions?.canPromote) },
+                            { id: 'member', label: 'Member', icon: '👤', color: '#949ba4', allowed: server.ownerId === me.id || Boolean(server.myPermissions?.canPromote) },
+                          ].map((roleChoice) => {
+                            const isCurrent = currentRoleId === roleChoice.id;
+                            const canChange = roleChoice.allowed && onSetRole && !isSelf;
+
+                            return (
+                              <button
+                                key={roleChoice.id}
+                                type="button"
+                                disabled={!canChange}
+                                onClick={() => {
+                                  if (canChange && onSetRole) {
+                                    onSetRole(m.userId, roleChoice.id);
+                                  }
+                                }}
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: isCurrent ? 700 : 500,
+                                  padding: '4px 8px',
+                                  borderRadius: 12,
+                                  border: isCurrent ? `1.5px solid ${roleChoice.color}` : '1px solid rgba(255,255,255,0.1)',
+                                  background: isCurrent ? `${roleChoice.color}25` : 'rgba(0,0,0,0.2)',
+                                  color: isCurrent ? roleChoice.color : canChange ? '#dbdee1' : '#6d6f78',
+                                  cursor: canChange ? 'pointer' : 'default',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  transition: 'all 0.15s ease',
+                                }}
+                                title={isCurrent ? `Currently ${roleChoice.label}` : canChange ? `Promote to ${roleChoice.label}` : `Permission required`}
+                              >
+                                <span>{roleChoice.icon}</span>
+                                <span>{roleChoice.label}</span>
+                                {isCurrent && <span>✓</span>}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {tab === 'roles' && (
             <>
+              {/* Hierarchy Summary */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>ROLE HIERARCHY & PRIVILEGES</span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
+                  <div style={{ background: 'rgba(254, 231, 92, 0.08)', border: '1px solid rgba(254, 231, 92, 0.25)', borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#fee75c', fontWeight: 700, fontSize: 13 }}>
+                      <Crown size={14} /> Leader (Owner)
+                    </div>
+                    <div style={{ fontSize: 11, color: '#dbdee1', marginTop: 3 }}>
+                      Full server ownership. Broadcasts live stage, invites, promotes/demotes all roles.
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(235, 69, 158, 0.08)', border: '1px solid rgba(235, 69, 158, 0.25)', borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#eb459e', fontWeight: 700, fontSize: 13 }}>
+                      <Star size={14} /> Co-Leader
+                    </div>
+                    <div style={{ fontSize: 11, color: '#dbdee1', marginTop: 3 }}>
+                      Second-in-command. Broadcasts live tournaments/stream, promotes members to Elder, manages channels.
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(87, 242, 135, 0.08)', border: '1px solid rgba(87, 242, 135, 0.25)', borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#57f287', fontWeight: 700, fontSize: 13 }}>
+                      <Shield size={14} /> Elder
+                    </div>
+                    <div style={{ fontSize: 11, color: '#dbdee1', marginTop: 3 }}>
+                      Squad moderator. Can kick rulebreakers and manage in-call voice & chat moderation.
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#949ba4', fontWeight: 700, fontSize: 13 }}>
+                      👤 Member
+                    </div>
+                    <div style={{ fontSize: 11, color: '#dbdee1', marginTop: 3 }}>
+                      Standard squad participant. Chat, audio/video lobbies, and live audience interaction.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="nc-role-list">
                 {server.roles.map((r) => (
                   <div key={r.id} className="nc-role-row">
                     <span className="nc-role-dot" style={{ background: r.color }} />
                     <span className="nc-role-name">{r.name}</span>
                     <span className="nc-role-perms">
-                      {r.permissions.admin ? 'Administrator' : r.permissions.manageChannels ? 'Manage Channels' : 'Member'}
+                      {r.id === 'leader' ? '👑 Leader • Full Owner' : r.id === 'co-leader' ? '⭐ Co-Leader • Stream & Promote' : r.id === 'elder' ? '🛡️ Elder • Moderation' : r.permissions.admin ? 'Administrator' : r.permissions.manageChannels ? 'Manage Channels' : 'Member'}
                     </span>
-                    {server.myPermissions.admin && (
+                    {server.myPermissions.admin && r.id !== 'leader' && r.id !== 'co-leader' && r.id !== 'elder' && r.id !== 'member' && (
                       <button type="button" className="nc-icon-btn sm" onClick={() => onDeleteRole(r.id)}>
                         <Trash2 size={14} />
                       </button>

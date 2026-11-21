@@ -2608,6 +2608,7 @@ export function App() {
         <ServerSettingsModal
           server={activeServer}
           me={me}
+          users={users}
           onUpdateServer={async (patch) => {
             await api.updateServer(activeServer.id, patch);
             await runSync();
@@ -2618,6 +2619,10 @@ export function App() {
           }}
           onDeleteRole={async (roleId) => {
             await api.deleteRole(activeServer.id, roleId);
+            await runSync();
+          }}
+          onSetRole={async (uid, roleId) => {
+            await api.setMemberRole(activeServer.id, uid, roleId);
             await runSync();
           }}
           onRegenInvite={async () => {

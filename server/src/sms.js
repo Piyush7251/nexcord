@@ -146,8 +146,11 @@ async function getWabaConfig(apiKey) {
       const templates = Array.isArray(waba.templates) ? waba.templates : [];
 
       // Look for any approved template
-      const approved = templates.filter((t) => String(t.status || '').toLowerCase() === 'approved');
-      const otpTpl = approved.find((t) => /otp|verify|auth|code|login|access|welcome|notify|confirm|status|update|ref/i.test(t.template_name)) || approved[0];
+      const approved = templates.filter((t) => {
+        const s = String(t.status || '').toLowerCase();
+        return s === 'approved' || s === 'active' || s.startsWith('active');
+      });
+      const otpTpl = approved.find((t) => /nexcord|otp|verify|auth|code|login|access|welcome|notify|confirm|status|update|ref/i.test(t.template_name)) || approved[0];
 
       if (otpTpl) {
         cachedWabaConfig = {

@@ -290,7 +290,7 @@ class ApiService {
 
   Future<VoiceJoinResult> joinVoice(String serverId, String channelId) async {
     final j = await _req('POST', '/api/voice/join', {'serverId': serverId, 'channelId': channelId});
-    return VoiceJoinResult.fromJson(j as Map<String, dynamic>);
+    return VoiceJoinResult.fromJson(j);
   }
 
   Future<void> updateVoiceState({bool? muted, bool? deafened, bool? video, bool? streaming}) =>
@@ -327,4 +327,25 @@ class ApiService {
         'type': type,
         'categoryId': categoryId,
       });
+
+  Future<NexcordServer> updateServer(
+    String serverId, {
+    String? name,
+    String? description,
+    String? iconColor,
+    String? iconUrl,
+    String? bannerUrl,
+  }) async {
+    final j = await _req('PATCH', '/api/servers/$serverId', {
+      if (name != null) 'name': name,
+      if (description != null) 'description': description,
+      if (iconColor != null) 'iconColor': iconColor,
+      if (iconUrl != null) 'iconUrl': iconUrl,
+      if (bannerUrl != null) 'bannerUrl': bannerUrl,
+    });
+    return NexcordServer.fromJson(j['server'] as Map<String, dynamic>);
+  }
+
+  Future<void> setMemberRole(String serverId, String userId, String role) =>
+      _req('POST', '/api/servers/$serverId/members/$userId/role', {'role': role});
 }
