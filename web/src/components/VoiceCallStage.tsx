@@ -56,7 +56,7 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
   const isStreaming = isMe ? callState.screenSharing : !!vp?.streaming;
   const isVideoExpected = isMe
     ? !!(callState.cameraEnabled || callState.screenSharing)
-    : !!(vp?.video || vp?.streaming);
+    : !!(vp?.video || vp?.streaming || (!callState.isGroup && callState.mediaType === 'video') || nexconn.hasLiveRemoteVideo(uid));
 
   useEffect(() => {
     const el = videoRef.current;

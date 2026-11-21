@@ -631,8 +631,13 @@ class NexconnService {
     }
     const stream = this.getLocalStream();
     if (stream) {
-      if (videoElement.srcObject !== stream) {
-        videoElement.srcObject = stream;
+      const vTracks = stream.getVideoTracks().filter((t) => t.readyState === 'live');
+      if (vTracks.length > 0) {
+        if ((videoElement.srcObject as MediaStream)?.getVideoTracks()[0]?.id !== vTracks[0].id) {
+          videoElement.srcObject = new MediaStream(vTracks);
+        }
+      } else {
+        videoElement.srcObject = null;
       }
       if (videoElement.paused) {
         videoElement.play().catch(() => {});
@@ -654,8 +659,13 @@ class NexconnService {
 
     const existingStream = this.remoteStreams.get(userId);
     if (existingStream) {
-      if (videoElement.srcObject !== existingStream) {
-        videoElement.srcObject = existingStream;
+      const vTracks = existingStream.getVideoTracks().filter((t) => t.readyState === 'live');
+      if (vTracks.length > 0) {
+        if ((videoElement.srcObject as MediaStream)?.getVideoTracks()[0]?.id !== vTracks[0].id) {
+          videoElement.srcObject = new MediaStream(vTracks);
+        }
+      } else {
+        videoElement.srcObject = null;
       }
       existingStream.getVideoTracks().forEach((vt) => {
         vt.onunmute = () => {
@@ -663,6 +673,8 @@ class NexconnService {
         };
       });
       existingStream.onaddtrack = () => {
+        const updated = existingStream.getVideoTracks().filter((t) => t.readyState === 'live');
+        if (updated.length > 0) videoElement.srcObject = new MediaStream(updated);
         if (videoElement.paused) videoElement.play().catch(() => {});
       };
       if (videoElement.paused) {
@@ -701,7 +713,7 @@ class NexconnService {
   }
 
   playRemoteAudio(userId: string, stream: MediaStream) {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !userId || userId === this.currentUserId) return;
     try {
       const audioTrack = stream.getAudioTracks().find((t) => t.readyState === 'live') || stream.getAudioTracks()[0];
       if (!audioTrack) return;
@@ -816,6 +828,23 @@ class NexconnService {
       videoTransceiver.sender.replaceTrack(liveVideo).catch(() => {});
     }
 
+    try {
+      const aParams = audioTransceiver.sender.getParameters();
+      if (aParams && aParams.encodings && aParams.encodings.length > 0) {
+        (aParams.encodings[0] as any).networkPriority = 'high';
+        audioTransceiver.sender.setParameters(aParams).catch(() => {});
+      }
+    } catch {}
+
+    try {
+      const vParams = videoTransceiver.sender.getParameters();
+      if (vParams && vParams.encodings && vParams.encodings.length > 0) {
+        vParams.encodings[0].maxBitrate = 700000;
+        (vParams.encodings[0] as any).networkPriority = 'low';
+        videoTransceiver.sender.setParameters(vParams).catch(() => {});
+      }
+    } catch {}
+
     pc.ontrack = (event) => {
       let remoteStream = this.remoteStreams.get(remoteUserId);
       if (!remoteStream) {
@@ -843,8 +872,13 @@ class NexconnService {
 
       const el = this.remoteVideoElements.get(remoteUserId);
       if (el) {
-        if (el.srcObject !== remoteStream) {
-          el.srcObject = remoteStream;
+        const vTracks = remoteStream.getVideoTracks().filter((t) => t.readyState === 'live');
+        if (vTracks.length > 0) {
+          if ((el.srcObject as MediaStream)?.getVideoTracks()[0]?.id !== vTracks[0].id) {
+            el.srcObject = new MediaStream(vTracks);
+          }
+        } else {
+          el.srcObject = null;
         }
         el.muted = true;
         el.defaultMuted = true;
@@ -857,8 +891,11 @@ class NexconnService {
       event.track.onunmute = () => {
         const vel = this.remoteVideoElements.get(remoteUserId);
         if (vel) {
-          if (vel.srcObject !== remoteStream) vel.srcObject = remoteStream;
-          vel.play().catch(() => {});
+          const vTracks = remoteStream!.getVideoTracks().filter((t) => t.readyState === 'live');
+          if (vTracks.length > 0) {
+            vel.srcObject = new MediaStream(vTracks);
+            vel.play().catch(() => {});
+          }
         }
       };
 
