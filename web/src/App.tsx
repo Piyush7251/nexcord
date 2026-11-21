@@ -268,13 +268,11 @@ export function App() {
       if (!myId) return;
       callState.peerIds.forEach((pid) => {
         if (pid !== myId) {
-          const state = nexconn.getPeerConnectionState(pid);
-          if (state === 'failed' || state === 'disconnected' || !nexconn.hasPeer(pid)) {
-            nexconn.connectToPeer(pid, callId).catch(() => {});
-          }
+          // connectToPeer is idempotent: it only (re)negotiates when the link is missing, stalled or failed
+          nexconn.connectToPeer(pid, callId).catch(() => {});
         }
       });
-    }, 3000);
+    }, 2500);
 
     return () => clearInterval(timer);
   }, [me, myVoice, callState.status, callState.callId, callState.peerIds]);

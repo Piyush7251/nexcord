@@ -59,31 +59,59 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
     ? !!(callState.cameraEnabled || callState.screenSharing)
     : !!(vp?.video || vp?.streaming || hasLiveRemote);
 
+  // Sync video stream changes and track events for remote peers
   useEffect(() => {
     if (isMe) return;
-    const stream = nexconn.getRemoteStream(uid);
-    if (!stream) return;
 
-    const handleTrackChange = () => {
-      const hasLive = stream.getVideoTracks().some((t) => t.readyState === 'live' && !t.muted);
-      if (!hasLive) {
+    const syncTracks = () => {
+      const el = videoRef.current;
+      const stream = nexconn.getRemoteStream(uid);
+      const liveTracks = stream?.getVideoTracks().filter((t) => t.readyState === 'live' && !t.muted) || [];
+
+      if (liveTracks.length === 0) {
         setHasLiveFrames(false);
+        return;
+      }
+
+      if (el) {
+        const curId = (el.srcObject as MediaStream)?.getVideoTracks?.()[0]?.id;
+        if (!el.srcObject || curId !== liveTracks[0].id) {
+          el.srcObject = new MediaStream(liveTracks);
+        }
+        if (el.paused) el.play().catch(() => {});
+        if (el.videoWidth > 0) setHasLiveFrames(true);
       }
     };
 
-    stream.getVideoTracks().forEach((t) => {
-      t.addEventListener('mute', handleTrackChange);
-      t.addEventListener('ended', handleTrackChange);
-    });
+    syncTracks();
+    const unsub = nexconn.subscribe(syncTracks);
+
+    const stream = nexconn.getRemoteStream(uid);
+    if (stream) {
+      stream.addEventListener('addtrack', syncTracks);
+      stream.addEventListener('removetrack', syncTracks);
+      stream.getVideoTracks().forEach((t) => {
+        t.addEventListener('unmute', syncTracks);
+        t.addEventListener('mute', syncTracks);
+        t.addEventListener('ended', syncTracks);
+      });
+    }
 
     return () => {
-      stream.getVideoTracks().forEach((t) => {
-        t.removeEventListener('mute', handleTrackChange);
-        t.removeEventListener('ended', handleTrackChange);
-      });
+      unsub();
+      if (stream) {
+        stream.removeEventListener('addtrack', syncTracks);
+        stream.removeEventListener('removetrack', syncTracks);
+        stream.getVideoTracks().forEach((t) => {
+          t.removeEventListener('unmute', syncTracks);
+          t.removeEventListener('mute', syncTracks);
+          t.removeEventListener('ended', syncTracks);
+        });
+      }
     };
-  }, [isMe, uid, isVideoExpected]);
+  }, [isMe, uid]);
 
+  // Video element binding & playback watchdog
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -96,44 +124,53 @@ const VoiceTile: React.FC<VoiceTileProps> = ({
         el.srcObject = null;
         setHasLiveFrames(false);
       }
-    } else {
-      if (isVideoExpected) {
-        nexconn.bindRemoteVideo(uid, el);
-
-        const checkPlaying = () => {
-          if (el.videoWidth > 0) {
-            setHasLiveFrames(true);
-            if (el.paused) el.play().catch(() => {});
-          } else if (el.srcObject && el.paused) {
-            el.play().catch(() => {});
-          }
-        };
-
-        checkPlaying();
-        el.addEventListener('loadeddata', checkPlaying);
-        el.addEventListener('playing', checkPlaying);
-        el.addEventListener('canplay', checkPlaying);
-        el.addEventListener('resize', checkPlaying);
-        el.addEventListener('timeupdate', checkPlaying);
-        const poll = setInterval(checkPlaying, 300);
-
-        return () => {
-          clearInterval(poll);
-          el.removeEventListener('loadeddata', checkPlaying);
-          el.removeEventListener('playing', checkPlaying);
-          el.removeEventListener('canplay', checkPlaying);
-          el.removeEventListener('resize', checkPlaying);
-          el.removeEventListener('timeupdate', checkPlaying);
-        };
-      } else {
-        el.srcObject = null;
-        setHasLiveFrames(false);
-        nexconn.bindRemoteVideo(uid, null);
-      }
+      return;
     }
-  }, [isMe, uid, isVideoExpected, callState.cameraEnabled, callState.screenSharing]);
 
-  const showVideo = isMe ? isVideoExpected : (isVideoExpected && hasLiveFrames);
+    // Remote peer: ALWAYS bind remote video element so when remote video tracks arrive or toggle on,
+    // nexconn immediately mounts the MediaStream and starts playback without waiting for a re-render.
+    nexconn.bindRemoteVideo(uid, el);
+
+    const checkPlaying = () => {
+      if (!el) return;
+      const vTracks = (el.srcObject as MediaStream)?.getVideoTracks?.() || [];
+      const hasLiveTrack = vTracks.some((t) => t.readyState === 'live' && !t.muted);
+
+      if (hasLiveTrack && el.videoWidth > 0) {
+        setHasLiveFrames(true);
+        if (el.paused) el.play().catch(() => {});
+      } else if (hasLiveTrack) {
+        if (el.paused) el.play().catch(() => {});
+        if (el.videoWidth > 0) setHasLiveFrames(true);
+      } else {
+        if (!hasLiveRemote && !vp?.video && !vp?.streaming) {
+          setHasLiveFrames(false);
+        }
+      }
+    };
+
+    checkPlaying();
+    el.addEventListener('loadeddata', checkPlaying);
+    el.addEventListener('playing', checkPlaying);
+    el.addEventListener('canplay', checkPlaying);
+    el.addEventListener('resize', checkPlaying);
+    el.addEventListener('timeupdate', checkPlaying);
+    const poll = setInterval(checkPlaying, 250);
+
+    return () => {
+      clearInterval(poll);
+      el.removeEventListener('loadeddata', checkPlaying);
+      el.removeEventListener('playing', checkPlaying);
+      el.removeEventListener('canplay', checkPlaying);
+      el.removeEventListener('resize', checkPlaying);
+      el.removeEventListener('timeupdate', checkPlaying);
+      nexconn.bindRemoteVideo(uid, null);
+    };
+  }, [isMe, uid, isVideoExpected, hasLiveRemote]);
+
+  const showVideo = isMe
+    ? isVideoExpected
+    : (hasLiveFrames || (hasLiveRemote && isVideoExpected));
 
   return (
     <div
@@ -260,6 +297,18 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
 }) => {
   const [showInvite, setShowInvite] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
+  const [, setTick] = useState(0);
+
+  // Subscribe to nexconn changes and poll so peer connection states,
+  // ICE updates, and track additions immediately update the badge and video tiles
+  useEffect(() => {
+    const unsub = nexconn.subscribe(() => setTick((t) => t + 1));
+    const interval = setInterval(() => setTick((t) => t + 1), 500);
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
+  }, []);
 
   const participantIds = useMemo(
     () =>
@@ -276,15 +325,46 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   const inviteCandidates = Object.values(users).filter(
     (u) => u.id !== me.id && !participantIds.includes(u.id),
   );
-  const peerStates = callState.peerIds.map((id) => nexconn.getPeerConnectionState(id));
-  const connectedPeers = peerStates.filter((state) => state === 'connected').length;
-  const peerStatus = peerStates.length === 0
-    ? 'Waiting for peers'
-    : connectedPeers === peerStates.length
-      ? 'P2P Connected'
-      : peerStates.some((state) => state === 'failed')
-        ? 'Connection failed'
-        : `${connectedPeers}/${peerStates.length} connected`;
+
+  const remotePeerIds = useMemo(
+    () => participantIds.filter((id) => id !== me.id),
+    [participantIds, me.id]
+  );
+
+  const peerStates = remotePeerIds.map((id) => nexconn.getPeerConnectionState(id));
+  const connectedRemotePeers = peerStates.filter((state) => state === 'connected').length;
+
+  const totalCount = participantIds.length;
+  // Local user is connected (1) + number of remote peers whose WebRTC connection is connected
+  const connectedCount = 1 + connectedRemotePeers;
+  const isAllConnected = totalCount > 1 && connectedRemotePeers === remotePeerIds.length;
+
+  const peerStatus =
+    totalCount <= 1
+      ? 'Waiting for squad (1/1)'
+      : isAllConnected
+        ? `P2P Connected (${connectedCount}/${totalCount})`
+        : peerStates.some((state) => state === 'failed')
+          ? `Connection failed (${connectedCount}/${totalCount})`
+          : `Connecting (${connectedCount}/${totalCount})`;
+
+  const badgeColor =
+    totalCount <= 1
+      ? '#949ba4'
+      : isAllConnected
+        ? '#57F287'
+        : peerStates.some((s) => s === 'failed')
+          ? '#ED4245'
+          : '#F0B232';
+
+  const badgeBg =
+    totalCount <= 1
+      ? 'rgba(255, 255, 255, 0.08)'
+      : isAllConnected
+        ? 'rgba(87, 242, 135, 0.12)'
+        : peerStates.some((s) => s === 'failed')
+          ? 'rgba(237, 66, 69, 0.12)'
+          : 'rgba(240, 178, 50, 0.12)';
 
   return (
     <div className="nc-voice-stage">
@@ -298,8 +378,8 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
             role="status"
             style={{
               fontSize: 11,
-              color: connectedPeers === peerStates.length && peerStates.length > 0 ? '#57F287' : '#F0B232',
-              background: connectedPeers === peerStates.length && peerStates.length > 0 ? 'rgba(87,242,135,0.12)' : 'rgba(240,178,50,0.12)',
+              color: badgeColor,
+              background: badgeBg,
               padding: '2px 8px',
               borderRadius: 10,
               fontWeight: 600,
