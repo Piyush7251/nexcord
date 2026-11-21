@@ -2356,24 +2356,28 @@ export function App() {
             <aside className="nc-right-drawer members">
               <div className="nc-drawer-scroll">
                 {(() => {
-                  const onlineMembers = activeServer.members.filter((m) => {
-                    const u = m.userId === me.id ? me : users[m.userId];
-                    return u && u.status !== 'offline';
-                  });
-                  const offlineMembers = activeServer.members.filter((m) => {
-                    const u = m.userId === me.id ? me : users[m.userId];
-                    return !u || u.status === 'offline';
-                  });
+                  const leaders = activeServer.members.filter((m) => m.userId === activeServer.ownerId || m.roles.includes('leader'));
+                  const coLeaders = activeServer.members.filter((m) => !leaders.includes(m) && m.roles.includes('co-leader'));
+                  const elders = activeServer.members.filter((m) => !leaders.includes(m) && !coLeaders.includes(m) && m.roles.includes('elder'));
+                  const regularMembers = activeServer.members.filter((m) => !leaders.includes(m) && !coLeaders.includes(m) && !elders.includes(m));
+
                   const renderMember = (m: Server['members'][number]) => {
                     const u = m.userId === me.id ? me : users[m.userId];
                     if (!u) return null;
+                    const isLeader = m.userId === activeServer.ownerId || m.roles.includes('leader');
+                    const isCoLeader = m.roles.includes('co-leader');
+                    const isElder = m.roles.includes('elder');
                     const role = m.roles.map((r) => activeServer.roles.find((x) => x.id === r)).find(Boolean);
+
                     return (
                       <div key={m.userId} className="nc-member-row" onClick={() => setProfileUser(u)}>
                         <Avatar user={u} size={32} showStatus />
                         <div className="nc-member-meta">
                           <div className="nc-member-name" style={{ color: role?.color }}>
                             <span>{m.nickname || u.displayName}</span>
+                            {isLeader && <span title="Group Leader" style={{ marginLeft: 4, fontSize: 13 }}>👑</span>}
+                            {isCoLeader && <span title="Co-Leader" style={{ marginLeft: 4, fontSize: 12 }}>⭐</span>}
+                            {isElder && <span title="Elder" style={{ marginLeft: 4, fontSize: 12 }}>🛡️</span>}
                             {u.isBot && <span className="nc-bot-tag">BOT</span>}
                           </div>
                           {u.customStatus && <div className="nc-member-sub">{u.customStatus}</div>}
@@ -2381,14 +2385,31 @@ export function App() {
                       </div>
                     );
                   };
+
                   return (
                     <>
-                      <div className="nc-member-group-head">ONLINE — {onlineMembers.length}</div>
-                      {onlineMembers.map(renderMember)}
-                      {offlineMembers.length > 0 && (
+                      {leaders.length > 0 && (
                         <>
-                          <div className="nc-member-group-head">OFFLINE — {offlineMembers.length}</div>
-                          {offlineMembers.map(renderMember)}
+                          <div className="nc-member-group-head" style={{ color: '#fee75c' }}>👑 LEADERS — {leaders.length}</div>
+                          {leaders.map(renderMember)}
+                        </>
+                      )}
+                      {coLeaders.length > 0 && (
+                        <>
+                          <div className="nc-member-group-head" style={{ color: '#eb459e' }}>⭐ CO-LEADERS — {coLeaders.length}</div>
+                          {coLeaders.map(renderMember)}
+                        </>
+                      )}
+                      {elders.length > 0 && (
+                        <>
+                          <div className="nc-member-group-head" style={{ color: '#57f287' }}>🛡️ ELDERS — {elders.length}</div>
+                          {elders.map(renderMember)}
+                        </>
+                      )}
+                      {regularMembers.length > 0 && (
+                        <>
+                          <div className="nc-member-group-head">MEMBERS — {regularMembers.length}</div>
+                          {regularMembers.map(renderMember)}
                         </>
                       )}
                     </>
@@ -2616,6 +2637,11 @@ export function App() {
           onStartCall={(uid, video) => startDirectCall(uid, video)}
           onAddFriend={async (uid) => {
             await api.requestFriend({ userId: uid });
+            await runSync();
+          }}
+          onSetRole={async (uid, roleId) => {
+            if (!activeServer) return;
+            await api.setMemberRole(activeServer.id, uid, roleId);
             await runSync();
           }}
           onToggleRole={async (uid, roleId) => {

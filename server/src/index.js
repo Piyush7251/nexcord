@@ -522,6 +522,7 @@ app.patch('/api/me', auth, wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- sync
 function serverView(s, uid) {
+  ensureServerRoles(s);
   const vs = voice[s.id] || {};
   const voiceStates = {};
   for (const [cid, v] of Object.entries(vs)) {
@@ -587,17 +588,84 @@ app.post('/api/users/lookup', auth, (req, res) => {
 });
 
 // ---------------------------------------------------------------- servers
+const STANDARD_ROLES = [
+  { id: 'leader', name: 'Leader', color: '#FEE75C', permissions: { admin: true, manageChannels: true, manageServer: true, kick: true, owner: true, canStream: true, canPromote: true } },
+  { id: 'co-leader', name: 'Co-Leader', color: '#EB459E', permissions: { admin: true, manageChannels: true, manageServer: true, kick: true, canStream: true, canPromote: true } },
+  { id: 'elder', name: 'Elder', color: '#57F287', permissions: { kick: true, canStream: false, canPromote: false } },
+  { id: 'member', name: 'Member', color: '#949BA4', permissions: { canStream: false, canPromote: false } },
+];
+
+function ensureServerRoles(s) {
+  if (!s) return;
+  if (!Array.isArray(s.roles)) s.roles = [];
+  for (const std of STANDARD_ROLES) {
+    if (!s.roles.some((r) => r.id === std.id)) {
+      s.roles.push({ ...std });
+    }
+  }
+  // Ensure owner member has 'leader' role
+  const ownerMem = s.members.find((m) => m.userId === s.ownerId);
+  if (ownerMem) {
+    if (!ownerMem.roles || !ownerMem.roles.includes('leader')) {
+      ownerMem.roles = ['leader', ...(ownerMem.roles || []).filter((r) => !['member', 'elder', 'co-leader'].includes(r))];
+    }
+  }
+  // Ensure other members have at least 'member' role if empty
+  for (const m of s.members) {
+    if (m.userId !== s.ownerId && (!m.roles || m.roles.length === 0)) {
+      m.roles = ['member'];
+    }
+  }
+}
+
 function perms(s, uid) {
   if (!s) return {};
-  if (s.ownerId === uid) return { admin: true, manageChannels: true, manageServer: true, kick: true, owner: true };
+  ensureServerRoles(s);
+  if (s.ownerId === uid) {
+    return {
+      admin: true,
+      manageChannels: true,
+      manageServer: true,
+      kick: true,
+      owner: true,
+      canStream: true,
+      canPromote: true,
+      role: 'leader',
+    };
+  }
   const m = s.members.find((x) => x.userId === uid);
-  const p = { admin: false, manageChannels: false, manageServer: false, kick: false, owner: false };
+  const p = {
+    admin: false,
+    manageChannels: false,
+    manageServer: false,
+    kick: false,
+    owner: false,
+    canStream: false,
+    canPromote: false,
+    role: 'member',
+  };
   for (const rid_ of m?.roles || []) {
+    if (rid_ === 'leader' || rid_ === 'co-leader') {
+      p.canStream = true;
+      p.canPromote = true;
+      p.admin = true;
+      p.manageChannels = true;
+      p.manageServer = true;
+      p.kick = true;
+      p.role = rid_;
+    } else if (rid_ === 'elder') {
+      p.kick = true;
+      if (p.role !== 'leader' && p.role !== 'co-leader') p.role = 'elder';
+    }
     const r = s.roles.find((x) => x.id === rid_);
     if (!r) continue;
-    for (const k of ['admin', 'manageChannels', 'manageServer', 'kick']) if (r.permissions?.[k]) p[k] = true;
+    for (const k of ['admin', 'manageChannels', 'manageServer', 'kick', 'canStream', 'canPromote']) {
+      if (r.permissions?.[k]) p[k] = true;
+    }
   }
-  if (p.admin) { p.manageChannels = p.manageServer = p.kick = true; }
+  if (p.admin) {
+    p.manageChannels = p.manageServer = p.kick = p.canStream = p.canPromote = true;
+  }
   return p;
 }
 
@@ -641,10 +709,12 @@ async function createServer(owner, name, template = 'gaming') {
     id: rid('g', 11), name: String(name || 'My Server').trim().slice(0, 100) || 'My Server', iconColor: pick(AVATAR_COLORS), iconUrl: '',
     description: '', ownerId: owner.id, inviteCode: rid('', 8), createdAt: Date.now(),
     roles: [
-      { id: 'admin', name: 'Admin', color: '#ED4245', permissions: { admin: true } },
-      { id: 'mod', name: 'Moderator', color: '#3BA55C', permissions: { manageChannels: true, kick: true } },
+      { id: 'leader', name: 'Leader', color: '#FEE75C', permissions: { admin: true, manageChannels: true, manageServer: true, kick: true, owner: true, canStream: true, canPromote: true } },
+      { id: 'co-leader', name: 'Co-Leader', color: '#EB459E', permissions: { admin: true, manageChannels: true, manageServer: true, kick: true, canStream: true, canPromote: true } },
+      { id: 'elder', name: 'Elder', color: '#57F287', permissions: { kick: true, canStream: false, canPromote: false } },
+      { id: 'member', name: 'Member', color: '#949BA4', permissions: { canStream: false, canPromote: false } },
     ],
-    members: [{ userId: owner.id, roles: [], joinedAt: Date.now(), nickname: '' }],
+    members: [{ userId: owner.id, roles: ['leader'], joinedAt: Date.now(), nickname: '' }],
     categories: [], channels: [], pins: {},
   };
   if (nx.isConfigured()) {
@@ -685,7 +755,8 @@ async function joinServer(s, user) {
   if (nx.isConfigured()) {
     await nx.joinCommunity(user.id, s.id).catch((e) => console.warn('[nexconn] join failed:', e.message));
   }
-  s.members.push({ userId: user.id, roles: [], joinedAt: Date.now(), nickname: '' });
+  ensureServerRoles(s);
+  s.members.push({ userId: user.id, roles: ['member'], joinedAt: Date.now(), nickname: '' });
   save();
   notifyServer(s);
   notify([user.id]);
@@ -830,16 +901,53 @@ app.delete('/api/servers/:id/roles/:rid', auth, wrap(async (req, res) => {
 
 app.patch('/api/servers/:id/members/:uid', auth, wrap(async (req, res) => {
   const s = getServer(req);
+  ensureServerRoles(s);
   const m = s.members.find((x) => x.userId === req.params.uid);
   if (!m) throw new HttpError(404, 'Member not found');
   const { roles, nickname } = req.body || {};
-  if (roles !== undefined) { requirePerm(s, req.user.id, 'admin'); m.roles = roles.filter((r) => s.roles.some((x) => x.id === r)); }
+  if (roles !== undefined) {
+    const callerPerms = perms(s, req.user.id);
+    if (!callerPerms.canPromote && !callerPerms.admin && !callerPerms.owner) {
+      throw new HttpError(403, 'Only Leaders and Co-Leaders can promote or change roles');
+    }
+    if ((roles.includes('leader') || roles.includes('co-leader')) && !callerPerms.owner) {
+      throw new HttpError(403, 'Only the Group Leader can assign Leader or Co-Leader roles');
+    }
+    if (req.params.uid === s.ownerId && !roles.includes('leader')) {
+      throw new HttpError(400, 'Cannot remove the Leader role from group owner');
+    }
+    m.roles = roles.filter((r) => s.roles.some((x) => x.id === r));
+  }
   if (nickname !== undefined) {
     if (req.params.uid !== req.user.id) requirePerm(s, req.user.id, 'manageServer');
     m.nickname = String(nickname).slice(0, 32);
   }
   save(); notifyServer(s);
   res.json({ member: m });
+}));
+
+app.post('/api/servers/:id/members/:uid/role', auth, wrap(async (req, res) => {
+  const s = getServer(req);
+  ensureServerRoles(s);
+  const callerPerms = perms(s, req.user.id);
+  if (!callerPerms.canPromote && !callerPerms.admin && !callerPerms.owner) {
+    throw new HttpError(403, 'Only Leaders and Co-Leaders can assign roles');
+  }
+  const m = s.members.find((x) => x.userId === req.params.uid);
+  if (!m) throw new HttpError(404, 'Member not found');
+  const { role } = req.body || {};
+  if (!['leader', 'co-leader', 'elder', 'member'].includes(role)) {
+    throw new HttpError(400, 'Invalid role. Must be leader, co-leader, elder, or member.');
+  }
+  if (req.params.uid === s.ownerId && role !== 'leader') {
+    throw new HttpError(400, 'Cannot change the Leader role of the group owner');
+  }
+  if ((role === 'leader' || role === 'co-leader') && !callerPerms.owner) {
+    throw new HttpError(403, 'Only the Group Leader can promote to Co-Leader or Leader');
+  }
+  m.roles = [role];
+  save(); notifyServer(s);
+  res.json({ ok: true, member: m });
 }));
 
 app.post('/api/servers/:id/members/:uid/kick', auth, wrap(async (req, res) => {
@@ -934,7 +1042,11 @@ app.post('/api/servers/:id/channels/:cid/live/start', auth, wrap(async (req, res
   const s = getServer(req);
   const ch = s.channels.find((c) => c.id === req.params.cid && c.type === 'live');
   if (!ch) throw new HttpError(404, 'Live channel not found');
-  if (ch.live && ch.live.userId !== req.user.id && !perms(s, req.user.id).manageChannels) throw new HttpError(409, 'Someone is already live here');
+  const userPerms = perms(s, req.user.id);
+  if (!userPerms.canStream && !userPerms.owner && !userPerms.admin) {
+    throw new HttpError(403, 'Streaming is restricted to Group Leaders and Co-Leaders.');
+  }
+  if (ch.live && ch.live.userId !== req.user.id && !userPerms.manageChannels) throw new HttpError(409, 'Someone is already live here');
   const { streamUrl = '', title = '', mode = 'esports-sim', callId = '' } = req.body || {};
   ch.live = { userId: req.user.id, streamUrl: String(streamUrl).slice(0, 500), title: String(title).slice(0, 120), mode, callId, startedAt: Date.now() };
   save(); notifyServer(s);

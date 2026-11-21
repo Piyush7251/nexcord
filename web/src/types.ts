@@ -21,6 +21,9 @@ export interface RolePermissions {
   manageServer?: boolean;
   kick?: boolean;
   owner?: boolean;
+  canStream?: boolean;
+  canPromote?: boolean;
+  role?: string;
 }
 
 export interface Role {

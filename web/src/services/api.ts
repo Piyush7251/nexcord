@@ -147,6 +147,8 @@ export const api = {
     req(`/api/servers/${serverId}/roles/${roleId}`, { method: 'DELETE' }),
   updateMember: (serverId: string, userId: string, patch: { roles?: string[]; nickname?: string }) =>
     req(`/api/servers/${serverId}/members/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  setMemberRole: (serverId: string, userId: string, role: string) =>
+    req(`/api/servers/${serverId}/members/${userId}/role`, { method: 'POST', body: JSON.stringify({ role }) }),
   kickMember: (serverId: string, userId: string) =>
     req(`/api/servers/${serverId}/members/${userId}/kick`, { method: 'POST' }),
 

@@ -3,6 +3,7 @@ import {
   Activity,
   Check,
   Copy,
+  Crown,
   Gamepad2,
   Hash,
   KeyRound,
@@ -15,6 +16,7 @@ import {
   Server as ServerIcon,
   Settings,
   Shield,
+  Star,
   Trash2,
   Tv,
   UserPlus,
@@ -1220,6 +1222,7 @@ interface UserProfileModalProps {
   onStartCall: (userId: string, video: boolean) => void;
   onAddFriend: (userId: string) => void;
   onToggleRole?: (userId: string, roleId: string) => void;
+  onSetRole?: (userId: string, roleId: string) => void;
   onKick?: (userId: string) => void;
   onOpenSettings?: () => void;
   onLogout?: () => void;
@@ -1235,6 +1238,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onStartCall,
   onAddFriend,
   onToggleRole,
+  onSetRole,
   onKick,
   onOpenSettings,
   onLogout,
@@ -1270,23 +1274,64 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
           {server && member && (
             <div className="nc-user-card-section">
-              <label>ROLES IN {server.name.toUpperCase()}</label>
-              <div className="nc-role-pills">
-                {server.roles.map((r) => {
-                  const has = member.roles.includes(r.id);
-                  return (
-                    <button
-                      key={r.id}
-                      type="button"
-                      className={`nc-role-pill ${has ? 'has' : ''}`}
-                      disabled={!server.myPermissions.admin || !onToggleRole}
-                      onClick={() => onToggleRole?.(user.id, r.id)}
-                    >
-                      <span className="nc-role-dot" style={{ background: r.color }} />
-                      <span>{r.name}</span>
-                    </button>
-                  );
-                })}
+              <label>GROUP ROLE & PROMOTION</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                <div className="nc-role-pills">
+                  {server.roles.map((r) => {
+                    const has = member.roles.includes(r.id) || (r.id === 'leader' && user.id === server.ownerId);
+                    const isOwnerTarget = user.id === server.ownerId;
+                    const canEditThisRole =
+                      !isMe &&
+                      !isOwnerTarget &&
+                      (server.ownerId === me.id
+                        ? true
+                        : (Boolean(server.myPermissions?.canPromote) && r.id !== 'leader' && r.id !== 'co-leader'));
+
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        className={`nc-role-pill ${has ? 'has' : ''}`}
+                        disabled={!canEditThisRole || (!onSetRole && !onToggleRole)}
+                        onClick={() => {
+                          if (onSetRole) onSetRole(user.id, r.id);
+                          else onToggleRole?.(user.id, r.id);
+                        }}
+                        style={{
+                          cursor: canEditThisRole ? 'pointer' : 'default',
+                          opacity: has ? 1 : canEditThisRole ? 0.85 : 0.45,
+                        }}
+                        title={
+                          has
+                            ? `Current Role: ${r.name}`
+                            : canEditThisRole
+                            ? `Promote/Set as ${r.name}`
+                            : `Only Leader can assign this role`
+                        }
+                      >
+                        <span className="nc-role-dot" style={{ background: r.color }} />
+                        <span>{r.name}</span>
+                        {has && <span style={{ marginLeft: 3, fontSize: 11, fontWeight: 700 }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {!isMe && (server.ownerId === me.id || server.myPermissions?.canPromote) && user.id !== server.ownerId && (
+                  <div style={{ fontSize: 11, color: '#949ba4', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {server.ownerId === me.id ? (
+                      <>
+                        <Crown size={12} style={{ color: '#fee75c' }} />
+                        <span>Group Leader: Click a role above to promote or demote this member.</span>
+                      </>
+                    ) : (
+                      <>
+                        <Star size={12} style={{ color: '#eb459e' }} />
+                        <span>Co-Leader: You can promote members to Elder or Member.</span>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

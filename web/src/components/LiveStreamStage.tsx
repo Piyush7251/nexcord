@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Crown,
   Eye,
   Flame,
   Maximize2,
@@ -9,6 +10,7 @@ import {
   Radio,
   Send,
   Sparkles,
+  Star,
   Tv,
   Video,
   X,
@@ -91,6 +93,12 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
   const live = channel.live;
   const hostUser = live ? users[live.userId] : null;
   const isBroadcastingLocally = !!localStream;
+
+  const myMember = server.members.find((m) => m.userId === me.id);
+  const myRoles = myMember?.roles || [];
+  const isLeader = server.ownerId === me.id || myRoles.includes('leader') || Boolean(server.myPermissions?.owner);
+  const isCoLeader = myRoles.includes('co-leader');
+  const canStream = Boolean(isLeader || isCoLeader || server.myPermissions?.canStream || server.myPermissions?.admin);
   const isStreamer = (live?.userId === me.id) || isBroadcastingLocally;
   const isLiveActive = !!live || isBroadcastingLocally;
   const canStop = isStreamer || !!server.myPermissions?.manageChannels;
@@ -317,6 +325,10 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
 
   const handleStartScreenShare = async () => {
     setLiveError(null);
+    if (!canStream) {
+      setLiveError('Streaming on the Live Stage is restricted to Leaders and Co-Leaders.');
+      return;
+    }
     setIsCapturing(true);
     try {
       let stream: MediaStream | null = null;
@@ -409,6 +421,10 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
 
   const handleStartCamera = async () => {
     setLiveError(null);
+    if (!canStream) {
+      setLiveError('Streaming on the Live Stage is restricted to Leaders and Co-Leaders.');
+      return;
+    }
     setIsCapturing(true);
     try {
       let stream: MediaStream;
@@ -686,26 +702,71 @@ export const LiveStreamStage: React.FC<LiveStreamStageProps> = ({
                 </div>
               )}
 
-              <div className="nc-live-start-btns">
-                <button
-                  type="button"
-                  className="nc-btn primary"
-                  onClick={handleStartScreenShare}
-                  disabled={isCapturing}
+              {canStream ? (
+                <>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      margin: '10px 0 14px',
+                      padding: '4px 12px',
+                      borderRadius: 16,
+                      background: 'rgba(254, 231, 92, 0.12)',
+                      border: '1px solid rgba(254, 231, 92, 0.3)',
+                      color: '#fee75c',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {isLeader ? <Crown size={14} /> : <Star size={14} />}
+                    <span>{isLeader ? 'Leader Streamer Access' : 'Co-Leader Streamer Access'}</span>
+                  </div>
+                  <div className="nc-live-start-btns">
+                    <button
+                      type="button"
+                      className="nc-btn primary"
+                      onClick={handleStartScreenShare}
+                      disabled={isCapturing}
+                    >
+                      <Monitor size={16} />
+                      <span>{isCapturing ? 'Starting...' : 'Share Screen'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="nc-btn green"
+                      onClick={handleStartCamera}
+                      disabled={isCapturing}
+                    >
+                      <Video size={16} />
+                      <span>{isCapturing ? 'Starting...' : isMobileDevice ? 'Go Live (Mobile Camera)' : 'Share Camera'}</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div
+                  style={{
+                    marginTop: 18,
+                    padding: '14px 20px',
+                    borderRadius: 10,
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    display: 'inline-flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 6,
+                    maxWidth: 440,
+                  }}
                 >
-                  <Monitor size={16} />
-                  <span>{isCapturing ? 'Starting...' : 'Share Screen'}</span>
-                </button>
-                <button
-                  type="button"
-                  className="nc-btn green"
-                  onClick={handleStartCamera}
-                  disabled={isCapturing}
-                >
-                  <Video size={16} />
-                  <span>{isCapturing ? 'Starting...' : isMobileDevice ? 'Go Live (Mobile Camera)' : 'Share Camera'}</span>
-                </button>
-              </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#fee75c', fontSize: 13, fontWeight: 600 }}>
+                    <Crown size={15} />
+                    <span>Leader & Co-Leader Exclusive</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: '#949ba4', textAlign: 'center', lineHeight: 1.45 }}>
+                    Only group Leaders and Co-Leaders can broadcast on the Live Stage. You can watch active squad streams and chat below!
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
