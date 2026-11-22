@@ -3584,7 +3584,7 @@ class _AuthScreenState extends State<_AuthScreen> {
           },
         );
 
-        final ok = await completer.future.timeout(const Duration(seconds: 25), onTimeout: () => false);
+        final ok = await completer.future.timeout(const Duration(seconds: 15), onTimeout: () => false);
         if (ok) {
           if (mounted) {
             setState(() {
@@ -3594,45 +3594,32 @@ class _AuthScreenState extends State<_AuthScreen> {
             _startCooldown();
           }
           return;
-        } else {
-          if (mounted) {
-            setState(() {
-              _err = 'Google SMS timed out. Please verify your internet connection or check Firebase configuration.';
-            });
-          }
-          return;
         }
       } catch (fbErr) {
-        debugPrint('Firebase phone auth initiation warning: $fbErr');
-        if (mounted) {
-          setState(() {
-            _err = 'Google SMS Error: ${fbErr.toString().replaceFirst('Exception: ', '')}';
-          });
-        }
-        return;
+        debugPrint('Firebase phone auth initiation warning: $fbErr, falling back to Carrier SMS');
       }
     }
 
-    // Admin master login only (Costs ₹0, does not send SMS)
-    if (isAdmin) {
-      try {
-        await widget.api.setBaseUrl(_urlCtrl.text.trim());
-        final res = await widget.api.sendOtp(phoneParam, channel: _otpChannel);
-        _usedFirebase = false;
-        setState(() {
-          _otpSent = true;
-          _info = res['message']?.toString() ?? 'Admin mode active for $phoneParam';
+    // Fallback Carrier SMS Gateway (dispatches real SMS directly to mobile carrier)
+    try {
+      await widget.api.setBaseUrl(_urlCtrl.text.trim());
+      final res = await widget.api.sendOtp(phoneParam, channel: _otpChannel);
+      _usedFirebase = false;
+      setState(() {
+        _otpSent = true;
+        _info = res['message']?.toString() ?? 'Verification code sent to $phoneParam';
+        if (isAdmin) {
           _otpCtrl.text = '123456';
-          if (res['devOtp'] != null) {
-            _devOtp = res['devOtp'].toString();
-          }
-        });
-        _startCooldown();
-      } catch (e) {
-        setState(() => _err = e.toString().replaceFirst('Exception: ', ''));
-      } finally {
-        if (mounted) setState(() => _busy = false);
-      }
+        }
+        if (res['devOtp'] != null) {
+          _devOtp = res['devOtp'].toString();
+        }
+      });
+      _startCooldown();
+    } catch (e) {
+      setState(() => _err = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

@@ -208,14 +208,6 @@ export async function sendSms({ phone, code }) {
   // If user requested SMS message for Indian number
   if (chosenChannel === 'sms') {
     results.provider = 'Fast2SMS SMS';
-
-    // Wallet Protection: Prevent paid Fast2SMS ₹7/SMS charges since Firebase handles SMS for free
-    if (process.env.ENABLE_PAID_FAST2SMS !== 'true') {
-      results.details = 'Fast2SMS billing paused to prevent charges. Please use Firebase Phone Authentication.';
-      addLog('info', 'FAST2SMS', `Blocked paid SMS dispatch to ${phone} to protect wallet balance.`);
-      return results;
-    }
-
     if (!fast2SmsKey) {
       results.details = 'Fast2SMS API key not configured.';
       return results;

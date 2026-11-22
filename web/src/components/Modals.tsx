@@ -148,26 +148,30 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
       return;
     }
 
-    // Google Firebase Phone Auth (10,000 FREE SMS/mo, zero DLT)
+    // Google Firebase Phone Auth first, with automatic Server SMS fallback
     try {
       await sendFirebasePhoneOtp(fullPhone, 'nc-recaptcha-container');
       setUsedFirebase(true);
       setMobileStep('otp');
       setCooldown(30);
     } catch (fbErr: any) {
-      console.warn('[Firebase Auth] Error:', fbErr);
-      const code = fbErr?.code || '';
-      let msg = fbErr?.message || 'Failed to send verification SMS via Google Firebase.';
-      if (code === 'auth/unauthorized-domain') {
-        msg = 'Domain not authorized. Please add nexcord-a85i.onrender.com to Authorized Domains in Firebase Console.';
-      } else if (code === 'auth/invalid-phone-number') {
-        msg = 'Invalid phone number format for Google verification.';
-      } else if (code === 'auth/quota-exceeded' || msg.includes('quota') || msg.includes('billing')) {
-        msg = 'Google billing/quota sync is updating across servers (takes 10-20 min after Blaze upgrade). To log in right now without waiting, add your number under "Phone numbers for testing" in Firebase Console!';
-      } else if (code === 'auth/too-many-requests') {
-        msg = 'Too many requests in a short time. Please wait 2-3 minutes, or add your number under "Phone numbers for testing" in Firebase Console for instant logins.';
+      console.warn('[Firebase Auth] Notice, falling back to Carrier SMS Gateway:', fbErr?.message);
+      try {
+        if (serverUrl.trim()) setApiBase(serverUrl.trim());
+        const res = await api.sendOtp(fullPhone, otpChannel);
+        setUsedFirebase(false);
+        setMobileStep('otp');
+        const cd = res.cooldownSeconds ?? 30;
+        setCooldown(cd);
+        if (res.devOtp) {
+          setDevOtpPreview(res.devOtp);
+        }
+      } catch (e: any) {
+        setErr(e?.message || fbErr?.message || 'Failed to send verification SMS');
+        if (e?.cooldownSeconds && e.cooldownSeconds > 0) {
+          setCooldown(e.cooldownSeconds);
+        }
       }
-      setErr(msg);
     } finally {
       setBusy(false);
     }
