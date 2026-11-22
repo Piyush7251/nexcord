@@ -24,15 +24,52 @@ export function setApiBase(url: string): void {
   else localStorage.setItem('nexcord_api_base', clean);
 }
 
-let sessionToken =
-  (typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('session') ||
-      sessionStorage.getItem('nexcord_session') ||
-      localStorage.getItem('nexcord_session')
-    : '') || '';
+function getCookie(name: string): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+  return match ? decodeURIComponent(match[3]) : '';
+}
+
+function setCookie(name: string, val: string, days = 90) {
+  if (typeof document === 'undefined') return;
+  if (!val) {
+    document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+  } else {
+    const maxAge = days * 24 * 60 * 60;
+    document.cookie = `${name}=${encodeURIComponent(val)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  }
+}
+
+let sessionToken = '';
 
 export function getSessionToken(): string {
-  return sessionToken;
+  if (sessionToken) return sessionToken;
+  if (typeof window !== 'undefined') {
+    const urlSession = new URLSearchParams(window.location.search).get('session');
+    if (urlSession) {
+      setSessionToken(urlSession);
+      return urlSession;
+    }
+    const fromStorage =
+      localStorage.getItem('nexcord_session') ||
+      localStorage.getItem('auth_token') ||
+      sessionStorage.getItem('nexcord_session') ||
+      sessionStorage.getItem('auth_token');
+    if (fromStorage) {
+      sessionToken = fromStorage;
+      setCookie('nexcord_session', fromStorage);
+      setCookie('auth_token', fromStorage);
+      return fromStorage;
+    }
+    const fromCookie = getCookie('nexcord_session') || getCookie('auth_token');
+    if (fromCookie) {
+      sessionToken = fromCookie;
+      localStorage.setItem('nexcord_session', fromCookie);
+      localStorage.setItem('auth_token', fromCookie);
+      return fromCookie;
+    }
+  }
+  return '';
 }
 
 export function setSessionToken(tok: string): void {
@@ -40,24 +77,40 @@ export function setSessionToken(tok: string): void {
   if (typeof window !== 'undefined') {
     if (tok) {
       sessionStorage.setItem('nexcord_session', tok);
-      // If not on an explicitly isolated session URL, also update localStorage
+      sessionStorage.setItem('auth_token', tok);
+      // Persist across sessions and browser tabs
       if (!new URLSearchParams(window.location.search).get('session')) {
         localStorage.setItem('nexcord_session', tok);
+        localStorage.setItem('auth_token', tok);
       }
+      setCookie('nexcord_session', tok);
+      setCookie('auth_token', tok);
     } else {
       sessionStorage.removeItem('nexcord_session');
+      sessionStorage.removeItem('auth_token');
       localStorage.removeItem('nexcord_session');
+      localStorage.removeItem('auth_token');
+      setCookie('nexcord_session', '');
+      setCookie('auth_token', '');
     }
   }
 }
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = getSessionToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((init.headers as Record<string, string>) || {}),
   };
-  if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
-  const res = await fetch(`${getApiBase()}${path}`, { ...init, headers });
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers['X-Auth-Token'] = token;
+  }
+  const res = await fetch(`${getApiBase()}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers,
+  });
   const text = await res.text();
   let json: any = {};
   try {

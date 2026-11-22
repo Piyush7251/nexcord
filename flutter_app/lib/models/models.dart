@@ -54,6 +54,20 @@ class NexcordUser {
         isAdmin: j['isAdmin'] == true,
       );
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'username': username,
+        'displayName': displayName,
+        'avatarColor': avatarColor,
+        'avatarUrl': avatarUrl,
+        'bannerColor': bannerColor,
+        'status': status,
+        'customStatus': customStatus,
+        'about': about,
+        'isBot': isBot,
+        'isAdmin': isAdmin,
+      };
+
   Color get color => hexToColor(avatarColor);
 
   Color get statusColor {

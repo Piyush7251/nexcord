@@ -480,9 +480,26 @@ export function App() {
       try {
         const res = await api.me();
         setMe(res.user);
+        try {
+          localStorage.setItem('nexcord_cached_user', JSON.stringify(res.user));
+        } catch {}
         await bootstrapSession(res.nexconnToken);
-      } catch {
-        setSessionToken('');
+      } catch (err: any) {
+        // ONLY clear session if server explicitly rejected with 401 Unauthorized
+        if (err?.status === 401) {
+          setSessionToken('');
+          try {
+            localStorage.removeItem('nexcord_cached_user');
+          } catch {}
+        } else {
+          console.warn('Network issue during startup; preserving session token & loading cached state:', err);
+          try {
+            const cached = localStorage.getItem('nexcord_cached_user');
+            if (cached) {
+              setMe(JSON.parse(cached));
+            }
+          } catch {}
+        }
       } finally {
         setAuthReady(true);
       }

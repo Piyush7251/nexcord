@@ -29,11 +29,23 @@ class SyncResult {
   });
 }
 
+class ApiException implements Exception {
+  final int statusCode;
+  final String message;
+  ApiException(this.statusCode, this.message);
+  @override
+  String toString() => 'ApiException($statusCode): $message';
+}
+
 class ApiService {
   static const _kSessionKey = 'nexcord_flutter_session';
+  static const _kAuthTokenKey = 'nexcord_flutter_auth_token';
+  static const _kCookieKey = 'nexcord_flutter_cookies';
+  static const _kCachedUserKey = 'nexcord_flutter_cached_user';
   static const _kBaseUrlKey = 'nexcord_flutter_api_base';
 
   String sessionToken = '';
+  String cookies = '';
   String baseUrl = defaultBaseUrl();
 
   static String defaultBaseUrl() {
@@ -42,7 +54,11 @@ class ApiService {
 
   Future<void> loadSaved() async {
     final prefs = await SharedPreferences.getInstance();
-    sessionToken = prefs.getString(_kSessionKey) ?? '';
+    sessionToken = prefs.getString(_kSessionKey) ?? prefs.getString(_kAuthTokenKey) ?? '';
+    cookies = prefs.getString(_kCookieKey) ?? '';
+    if (sessionToken.isNotEmpty && !cookies.contains('nexcord_session=')) {
+      cookies = 'nexcord_session=$sessionToken; auth_token=$sessionToken';
+    }
     final savedBase = prefs.getString(_kBaseUrlKey);
     if (savedBase != null && savedBase.trim().isNotEmpty) {
       baseUrl = savedBase.trim().replaceAll(RegExp(r'/+$'), '');
@@ -65,14 +81,72 @@ class ApiService {
     final prefs = await SharedPreferences.getInstance();
     if (tok.isEmpty) {
       await prefs.remove(_kSessionKey);
+      await prefs.remove(_kAuthTokenKey);
+      await prefs.remove(_kCookieKey);
+      await prefs.remove(_kCachedUserKey);
+      cookies = '';
     } else {
       await prefs.setString(_kSessionKey, tok);
+      await prefs.setString(_kAuthTokenKey, tok);
+      if (!cookies.contains('nexcord_session=')) {
+        cookies = 'nexcord_session=$tok; auth_token=$tok';
+      }
+      await prefs.setString(_kCookieKey, cookies);
     }
+  }
+
+  Future<void> cacheUser(NexcordUser user) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kCachedUserKey, jsonEncode(user.toJson()));
+    } catch (_) {}
+  }
+
+  Future<NexcordUser?> getCachedUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final str = prefs.getString(_kCachedUserKey);
+      if (str != null && str.isNotEmpty) {
+        final decoded = jsonDecode(str);
+        if (decoded is Map<String, dynamic>) {
+          return NexcordUser.fromJson(decoded);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  void _updateCookiesFromHeaders(String? setCookieHeader) {
+    if (setCookieHeader == null || setCookieHeader.isEmpty) return;
+    final cookieMap = <String, String>{};
+    if (cookies.isNotEmpty) {
+      for (final pair in cookies.split(';')) {
+        final kv = pair.trim().split('=');
+        if (kv.length == 2 && kv[0].isNotEmpty) {
+          cookieMap[kv[0].trim()] = kv[1].trim();
+        }
+      }
+    }
+    final rawDirectives = setCookieHeader.split(',');
+    for (final dir in rawDirectives) {
+      final firstPart = dir.split(';').first.trim();
+      final kv = firstPart.split('=');
+      if (kv.length == 2 && kv[0].isNotEmpty) {
+        cookieMap[kv[0].trim()] = kv[1].trim();
+      }
+    }
+    cookies = cookieMap.entries.map((e) => '${e.key}=${e.value}').join('; ');
+    SharedPreferences.getInstance().then((p) => p.setString(_kCookieKey, cookies)).catchError((_) => false);
   }
 
   Map<String, String> _headers() => {
         'Content-Type': 'application/json',
         if (sessionToken.isNotEmpty) 'Authorization': 'Bearer $sessionToken',
+        if (sessionToken.isNotEmpty) 'X-Auth-Token': sessionToken,
+        if (sessionToken.isNotEmpty)
+          'Cookie': cookies.isNotEmpty
+              ? cookies
+              : 'nexcord_session=$sessionToken; auth_token=$sessionToken',
       };
 
   Future<Map<String, dynamic>> _req(String method, String path, [Map<String, dynamic>? body]) async {
@@ -90,10 +164,15 @@ class ApiService {
       throw UnsupportedError('Unsupported method $method');
     }
 
+    final setCookie = res.headers['set-cookie'];
+    if (setCookie != null && setCookie.isNotEmpty) {
+      _updateCookiesFromHeaders(setCookie);
+    }
+
     final decoded = res.body.isNotEmpty ? jsonDecode(res.body) : <String, dynamic>{};
     final map = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
     if (res.statusCode >= 400) {
-      throw Exception(map['error']?.toString() ?? 'Request failed (${res.statusCode})');
+      throw ApiException(res.statusCode, map['error']?.toString() ?? 'Request failed (${res.statusCode})');
     }
     return map;
   }

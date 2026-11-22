@@ -35,8 +35,32 @@ if (db().settings?.fast2smsApiKey) {
 const PORT = Number(process.env.PORT || 3001);
 
 const origins = (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim());
-app.use(cors({ origin: origins.includes('*') ? true : origins, credentials: false }));
+app.use(cors({ origin: origins.includes('*') ? true : origins, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
+
+// Custom lightweight cookie parser to populate req.cookies
+function parseCookies(header = '') {
+  const cookies = {};
+  if (!header) return cookies;
+  const pairs = header.split(';');
+  for (const pair of pairs) {
+    const idx = pair.indexOf('=');
+    if (idx < 0) continue;
+    const key = pair.slice(0, idx).trim();
+    const val = pair.slice(idx + 1).trim();
+    try {
+      cookies[key] = decodeURIComponent(val);
+    } catch {
+      cookies[key] = val;
+    }
+  }
+  return cookies;
+}
+
+app.use((req, res, next) => {
+  req.cookies = parseCookies(req.headers.cookie);
+  next();
+});
 
 const UPLOADS_DIR = path.join(__dirname, '..', 'public', 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -168,10 +192,40 @@ function seedIfEmpty() {
   // Completely clean initial state: 0 dummy servers, 0 dummy bots, 0 dummy messages
 }
 
-// ---------------------------------------------------------------- auth
+// ---------------------------------------------------------------- auth & cookies
+function setAuthCookie(res, token) {
+  if (!token) return;
+  const isProd = process.env.NODE_ENV === 'production';
+  const opts = {
+    maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days persistent session
+    httpOnly: false, // accessible so web frontends and APIs can synchronize
+    path: '/',
+    sameSite: 'lax',
+    secure: isProd,
+  };
+  res.cookie('nexcord_session', token, opts);
+  res.cookie('auth_token', token, opts);
+}
+
+function clearAuthCookie(res) {
+  const opts = { path: '/' };
+  res.clearCookie('nexcord_session', opts);
+  res.clearCookie('auth_token', opts);
+}
+
 function auth(req, _res, next) {
-  const h = req.headers.authorization || '';
-  const token = h.startsWith('Bearer ') ? h.slice(7) : req.query.token;
+  const authHeader = req.headers.authorization || '';
+  let token = '';
+  if (authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7).trim();
+  } else if (req.headers['x-auth-token']) {
+    token = String(req.headers['x-auth-token']).trim();
+  } else if (req.cookies && (req.cookies.nexcord_session || req.cookies.auth_token || req.cookies.token)) {
+    token = String(req.cookies.nexcord_session || req.cookies.auth_token || req.cookies.token).trim();
+  } else if (req.query?.token) {
+    token = String(req.query.token).trim();
+  }
+
   const uid = token && db().sessions[token];
   const user = uid && db().users[uid];
   if (!user) return next(new HttpError(401, 'Not authenticated'));
@@ -499,7 +553,9 @@ app.post('/api/auth/verify-otp', wrap(async (req, res) => {
   addLog('success', 'AUTH', `User authenticated: ${user.displayName} (${clean})${user.isAdmin ? ' [ADMIN]' : ''}`);
 
   notify(Object.keys(db().users), 'sync');
-  res.json({ session: newSession(user), user: publicUser(user), nexconnToken: user.nexconnToken });
+  const session = newSession(user);
+  setAuthCookie(res, session);
+  res.json({ session, user: publicUser(user), nexconnToken: user.nexconnToken });
 }));
 
 app.post('/api/auth/register', wrap(async (req, res) => {
@@ -517,7 +573,9 @@ app.post('/api/auth/register', wrap(async (req, res) => {
   await ensureNexconnToken(user);
   d.users[user.id] = user;
   save();
-  res.json({ session: newSession(user), user: publicUser(user), nexconnToken: user.nexconnToken });
+  const session = newSession(user);
+  setAuthCookie(res, session);
+  res.json({ session, user: publicUser(user), nexconnToken: user.nexconnToken });
 }));
 
 app.post('/api/auth/login', wrap(async (req, res) => {
@@ -526,7 +584,9 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const user = Object.values(db().users).find((u) => u.username === uname || u.phone === uname);
   if (!user || (user.hash && hashPassword(String(password || ''), user.salt).hash !== user.hash)) throw new HttpError(401, 'Invalid username or password');
   await ensureNexconnToken(user);
-  res.json({ session: newSession(user), user: publicUser(user), nexconnToken: user.nexconnToken });
+  const session = newSession(user);
+  setAuthCookie(res, session);
+  res.json({ session, user: publicUser(user), nexconnToken: user.nexconnToken });
 }));
 
 app.post('/api/auth/demo', wrap(async (req, res) => {
@@ -557,14 +617,22 @@ app.post('/api/auth/demo', wrap(async (req, res) => {
   } else {
     await ensureNexconnToken(user);
   }
-  res.json({ session: newSession(user), user: publicUser(user), nexconnToken: user.nexconnToken });
+  const session = newSession(user);
+  setAuthCookie(res, session);
+  res.json({ session, user: publicUser(user), nexconnToken: user.nexconnToken });
 }));
 
-app.post('/api/auth/logout', auth, (req, res) => { delete db().sessions[req.session]; save(); res.json({ ok: true }); });
+app.post('/api/auth/logout', auth, (req, res) => {
+  delete db().sessions[req.session];
+  save();
+  clearAuthCookie(res);
+  res.json({ ok: true });
+});
 
 app.get('/api/me', auth, wrap(async (req, res) => {
+  setAuthCookie(res, req.session);
   const token = await ensureNexconnToken(req.user);
-  res.json({ user: publicUser(req.user), nexconnToken: token });
+  res.json({ user: publicUser(req.user), nexconnToken: token, session: req.session });
 }));
 
 app.post('/api/me/token', auth, wrap(async (req, res) => {

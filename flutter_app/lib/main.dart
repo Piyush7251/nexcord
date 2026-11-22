@@ -140,11 +140,30 @@ class _NexcordHomeState extends State<NexcordHome> {
   Future<void> _boot() async {
     await _api.loadSaved();
     if (_api.sessionToken.isNotEmpty) {
+      final cached = await _api.getCachedUser();
+      if (cached != null) {
+        _me = cached;
+      }
       try {
         final res = await _api.me();
+        await _api.cacheUser(res.user);
         await _afterLogin(res.user, res.nexconnToken);
+      } on ApiException catch (e) {
+        if (e.statusCode == 401) {
+          // Auth token is expired or invalid on the server
+          await _api.setSession('');
+          _me = null;
+        } else {
+          // 502/503/server waking up - keep session and bootstrap with cached user
+          if (cached != null) {
+            await _afterLogin(cached, cached.id);
+          }
+        }
       } catch (_) {
-        await _api.setSession('');
+        // Offline / network timeout on startup - keep session and bootstrap with cached user
+        if (cached != null) {
+          await _afterLogin(cached, cached.id);
+        }
       }
     }
     if (mounted) setState(() => _booted = true);
@@ -152,6 +171,7 @@ class _NexcordHomeState extends State<NexcordHome> {
 
   Future<void> _afterLogin(NexcordUser user, String nexconnToken) async {
     _me = user;
+    await _api.cacheUser(user);
     MediaStreamService.instance.configure(api: _api, currentUserId: user.id);
     final cfg = await _api.getConfig().catchError((_) => NexconnConfig());
     _config = cfg;
