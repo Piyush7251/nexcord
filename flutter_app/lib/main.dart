@@ -1396,21 +1396,38 @@ class _NexcordHomeState extends State<NexcordHome> {
                                   child: Container(
                                     constraints: const BoxConstraints(maxWidth: 240, maxHeight: 180),
                                     color: const Color(0xFF1E1F22),
-                                    child: Image.network(
-                                      (m.metadata?['url'] as String?) ?? m.text,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => const Padding(
-                                        padding: EdgeInsets.all(12),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.broken_image, size: 18, color: Colors.grey),
-                                            SizedBox(width: 6),
-                                            Text('GIF unavailable', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                                          ],
+                                    child: Builder(builder: (_) {
+                                      final rawUrl = (m.metadata?['url'] as String?) ?? m.text;
+                                      final isHttp = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
+                                      if (!isHttp) {
+                                        return const Padding(
+                                          padding: EdgeInsets.all(12),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.gif_box_rounded, size: 20, color: Color(0xFF5865F2)),
+                                              SizedBox(width: 6),
+                                              Text('GIF Animation', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                            ],
+                                          ),
+                                        );
+                                      }
+                                      return Image.network(
+                                        rawUrl,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => const Padding(
+                                          padding: EdgeInsets.all(12),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.broken_image, size: 18, color: Colors.grey),
+                                              SizedBox(width: 6),
+                                              Text('GIF unavailable', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    ),
+                                      );
+                                    }),
                                   ),
                                 ),
                               )
@@ -1427,13 +1444,34 @@ class _NexcordHomeState extends State<NexcordHome> {
                                       color: const Color(0x1F5865F2),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
-                                    child: Image.network(
-                                      (m.metadata?['url'] as String?) ?? m.text,
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) => const Center(
-                                        child: Icon(Icons.broken_image, color: Colors.grey),
-                                      ),
-                                    ),
+                                    child: Builder(builder: (_) {
+                                      final rawUrl = (m.metadata?['url'] as String?) ?? m.text;
+                                      final isHttp = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
+                                      if (!isHttp) {
+                                        return Center(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.sticky_note_2_rounded, color: Color(0xFF5865F2), size: 36),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                (m.metadata?['name'] as String?) ?? m.text,
+                                                style: const TextStyle(fontSize: 10, color: Colors.white70),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }
+                                      return Image.network(
+                                        rawUrl,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (_, __, ___) => const Center(
+                                          child: Icon(Icons.broken_image, color: Colors.grey),
+                                        ),
+                                      );
+                                    }),
                                   ),
                                 ),
                               )
@@ -1584,7 +1622,9 @@ class _NexcordHomeState extends State<NexcordHome> {
           heightFactor: 0.70,
           child: MediaPickerSheet(
             onSelectEmoji: (emoji) {
-              Navigator.pop(ctx);
+              if (Navigator.of(ctx).canPop()) {
+                Navigator.of(ctx).pop();
+              }
               setState(() {
                 _msgCtrl.text = '${_msgCtrl.text}$emoji';
                 _msgCtrl.selection = TextSelection.fromPosition(
@@ -1593,7 +1633,9 @@ class _NexcordHomeState extends State<NexcordHome> {
               });
             },
             onSelectGif: (gif) {
-              Navigator.pop(ctx);
+              if (Navigator.of(ctx).canPop()) {
+                Navigator.of(ctx).pop();
+              }
               _sendText(
                 gif.url,
                 type: 'gif',
@@ -1604,9 +1646,11 @@ class _NexcordHomeState extends State<NexcordHome> {
               );
             },
             onSelectSticker: (sticker) {
-              Navigator.pop(ctx);
+              if (Navigator.of(ctx).canPop()) {
+                Navigator.of(ctx).pop();
+              }
               _sendText(
-                sticker.name,
+                sticker.url,
                 type: 'sticker',
                 metadata: {
                   'name': sticker.name,

@@ -283,7 +283,6 @@ class _MediaPickerSheetState extends State<MediaPickerSheet> with SingleTickerPr
                     final g = gifs[i];
                     return InkWell(
                       onTap: () {
-                        Navigator.pop(context);
                         widget.onSelectGif(g);
                       },
                       borderRadius: BorderRadius.circular(8),
@@ -379,7 +378,6 @@ class _MediaPickerSheetState extends State<MediaPickerSheet> with SingleTickerPr
                     final s = stickers[i];
                     return InkWell(
                       onTap: () {
-                        Navigator.pop(context);
                         widget.onSelectSticker(s);
                       },
                       borderRadius: BorderRadius.circular(8),
