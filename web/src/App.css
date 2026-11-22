@@ -868,6 +868,30 @@
   word-break: break-word;
 }
 
+.nc-msg-text.emoji-single {
+  font-size: 46px;
+  line-height: 1.18;
+  padding: 4px 0 2px 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.nc-msg-text.emoji-multiple {
+  font-size: 28px;
+  line-height: 1.25;
+  padding: 2px 0;
+  display: inline-block;
+  vertical-align: middle;
+  letter-spacing: 2px;
+}
+
+.nc-msg-text.emoji-single .nc-edited,
+.nc-msg-text.emoji-multiple .nc-edited {
+  font-size: 11px;
+  vertical-align: middle;
+  letter-spacing: normal;
+}
+
 .nc-edited {
   font-size: 11px;
   color: var(--text-muted);

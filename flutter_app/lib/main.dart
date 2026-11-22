@@ -14,6 +14,28 @@ import 'widgets/live_stream_stage_view.dart';
 import 'widgets/voice_huddle_view.dart';
 import 'widgets/media_picker_sheet.dart';
 
+enum EmojiOnlyType { single, multiple, none }
+
+EmojiOnlyType getEmojiOnlyType(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return EmojiOnlyType.none;
+
+  final chars = trimmed.characters.where((c) => c.trim().isNotEmpty).toList();
+  if (chars.isEmpty) return EmojiOnlyType.none;
+
+  final emojiRegex = RegExp(
+    r'^[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E6}-\u{1F1FF}\u{200D}\u{20E3}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{2934}\u{2935}\u{25AA}\u{25AB}\u{25FE}\u{25FD}\u{25FB}\u{25FC}\u{3030}\u{303D}\u{3297}\u{3299}]+$',
+    unicode: true,
+  );
+
+  final allEmoji = chars.every((c) => emojiRegex.hasMatch(c));
+  if (!allEmoji) return EmojiOnlyType.none;
+
+  if (chars.length == 1) return EmojiOnlyType.single;
+  if (chars.length <= 8) return EmojiOnlyType.multiple;
+  return EmojiOnlyType.none;
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   final engineProvider = EngineProvider();
@@ -1416,7 +1438,35 @@ class _NexcordHomeState extends State<NexcordHome> {
                                 ),
                               )
                             else
-                              Text(m.text, style: const TextStyle(fontSize: 14.5, color: Color(0xFFDBDEE1))),
+                              Builder(builder: (_) {
+                                final emojiType = getEmojiOnlyType(m.text);
+                                final double fontSize = emojiType == EmojiOnlyType.single
+                                    ? 44.0
+                                    : emojiType == EmojiOnlyType.multiple
+                                        ? 28.0
+                                        : 14.5;
+                                final double height = emojiType == EmojiOnlyType.single
+                                    ? 1.15
+                                    : emojiType == EmojiOnlyType.multiple
+                                        ? 1.25
+                                        : 1.35;
+                                return Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    vertical: emojiType == EmojiOnlyType.single
+                                        ? 4.0
+                                        : (emojiType == EmojiOnlyType.multiple ? 2.0 : 0.0),
+                                  ),
+                                  child: Text(
+                                    m.text,
+                                    style: TextStyle(
+                                      fontSize: fontSize,
+                                      height: height,
+                                      letterSpacing: emojiType == EmojiOnlyType.multiple ? 2.0 : null,
+                                      color: const Color(0xFFDBDEE1),
+                                    ),
+                                  ),
+                                );
+                              }),
                             if (m.reactions.isNotEmpty) ...[
                               const SizedBox(height: 5),
                               Wrap(

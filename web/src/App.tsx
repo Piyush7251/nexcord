@@ -99,6 +99,30 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function getEmojiOnlyCategory(text: string): 'single' | 'multiple' | 'none' {
+  if (!text) return 'none';
+  const trimmed = text.trim();
+  if (!trimmed) return 'none';
+
+  try {
+    const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
+    const segments = [...segmenter.segment(trimmed)].filter((s) => s.segment.trim().length > 0);
+    if (segments.length === 0) return 'none';
+
+    const emojiGraphemeRegex = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F\u200D\p{Emoji_Modifier}]+$/u;
+    const isAllEmojis = segments.every(
+      (s) => emojiGraphemeRegex.test(s.segment) || /^\p{Regional_Indicator}{2}$/u.test(s.segment)
+    );
+
+    if (!isAllEmojis) return 'none';
+    if (segments.length === 1) return 'single';
+    if (segments.length <= 8) return 'multiple';
+    return 'none';
+  } catch {
+    return 'none';
+  }
+}
+
 function renderMessageText(text: string): React.ReactNode {
   // Simple lightweight **bold** and #channel highlight
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
@@ -2154,7 +2178,10 @@ export function App() {
                               <img src={m.metadata?.url || m.text} alt={m.metadata?.name || 'Sticker'} className="nc-msg-sticker-img" loading="lazy" />
                             </div>
                           ) : (
-                            <div className="nc-msg-text">
+                            <div className={`nc-msg-text ${(() => {
+                              const cat = getEmojiOnlyCategory(m.text);
+                              return cat === 'single' ? 'emoji-single' : cat === 'multiple' ? 'emoji-multiple' : '';
+                            })()}`}>
                               {renderMessageText(m.text)}
                               {m.editedAt && <span className="nc-edited">(edited)</span>}
                             </div>
