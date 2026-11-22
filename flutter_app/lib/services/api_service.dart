@@ -220,6 +220,25 @@ class ApiService {
     );
   }
 
+  Future<({String session, NexcordUser user, String nexconnToken})> firebaseLogin({
+    required String phone,
+    required String idToken,
+    String? displayName,
+  }) async {
+    final j = await _req('POST', '/api/auth/firebase-login', {
+      'phone': phone,
+      'idToken': idToken,
+      if (displayName != null && displayName.isNotEmpty) 'displayName': displayName,
+    });
+    final tok = j['session']?.toString() ?? '';
+    await setSession(tok);
+    return (
+      session: tok,
+      user: NexcordUser.fromJson(j['user'] as Map<String, dynamic>),
+      nexconnToken: j['nexconnToken']?.toString() ?? '',
+    );
+  }
+
   Future<({String session, NexcordUser user, String nexconnToken})> demoLogin([String? displayName]) async {
     final j = await _req('POST', '/api/auth/demo', {if (displayName != null) 'displayName': displayName});
     final tok = j['session']?.toString() ?? '';

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'services/call_engine_stub.dart' as call_nc;
@@ -36,8 +38,13 @@ EmojiOnlyType getEmojiOnlyType(String text) {
   return EmojiOnlyType.none;
 }
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('Firebase.initializeApp warning: $e');
+  }
   final engineProvider = EngineProvider();
   final themeProvider = NexconnThemeProvider();
 
@@ -3421,6 +3428,8 @@ class _AuthScreenState extends State<_AuthScreen> {
   String _countryCode = '+91';
   String _otpChannel = 'sms';
   String? _devOtp;
+  String? _firebaseVerificationId;
+  bool _usedFirebase = false;
 
   void _openCountryPicker() {
     showModalBottomSheet<void>(
@@ -3530,11 +3539,72 @@ class _AuthScreenState extends State<_AuthScreen> {
       _err = '';
       _info = '';
     });
+
+    final clean = _cleanPhone();
+    final phoneParam = isAdmin ? '123456789' : '+$clean';
+
+    if (!isAdmin) {
+      // 1. Try Google Firebase Phone Auth first (10,000 FREE SMS / month, instant delivery)
+      try {
+        final completer = Completer<bool>();
+        await FirebaseAuth.instance.verifyPhoneNumber(
+          phoneNumber: phoneParam,
+          timeout: const Duration(seconds: 60),
+          verificationCompleted: (PhoneAuthCredential credential) async {
+            if (credential.smsCode != null) {
+              _otpCtrl.text = credential.smsCode!;
+            }
+            try {
+              final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+              final idToken = await userCred.user?.getIdToken();
+              if (idToken != null && mounted) {
+                await widget.api.setBaseUrl(_urlCtrl.text.trim());
+                final res = await widget.api.firebaseLogin(
+                  phone: phoneParam,
+                  idToken: idToken,
+                  displayName: _otpNameCtrl.text.trim().isEmpty ? null : _otpNameCtrl.text.trim(),
+                );
+                await widget.onAuthenticated(res.user, res.nexconnToken);
+              }
+            } catch (e) {
+              debugPrint('Android SMS auto-retrieval sign in: $e');
+            }
+          },
+          verificationFailed: (FirebaseAuthException e) {
+            debugPrint('Firebase verification failed: ${e.message}');
+            if (!completer.isCompleted) completer.complete(false);
+          },
+          codeSent: (String verificationId, int? resendToken) {
+            _firebaseVerificationId = verificationId;
+            _usedFirebase = true;
+            if (!completer.isCompleted) completer.complete(true);
+          },
+          codeAutoRetrievalTimeout: (String verificationId) {
+            _firebaseVerificationId = verificationId;
+          },
+        );
+
+        final ok = await completer.future.timeout(const Duration(seconds: 15), onTimeout: () => false);
+        if (ok) {
+          if (mounted) {
+            setState(() {
+              _otpSent = true;
+              _info = 'Verification code sent via Google SMS to $phoneParam';
+            });
+            _startCooldown();
+          }
+          return;
+        }
+      } catch (fbErr) {
+        debugPrint('Firebase phone auth initiation warning: $fbErr');
+      }
+    }
+
+    // 2. Fallback to server gateway
     try {
       await widget.api.setBaseUrl(_urlCtrl.text.trim());
-      final clean = _cleanPhone();
-      final phoneParam = isAdmin ? '123456789' : '+$clean';
       final res = await widget.api.sendOtp(phoneParam, channel: _otpChannel);
+      _usedFirebase = false;
       setState(() {
         _otpSent = true;
         _info = res['message']?.toString() ?? 'Verification code sent to $phoneParam';
@@ -3567,6 +3637,29 @@ class _AuthScreenState extends State<_AuthScreen> {
       await widget.api.setBaseUrl(_urlCtrl.text.trim());
       final clean = _cleanPhone();
       final phoneParam = clean == '123456789' ? '123456789' : '+$clean';
+
+      if (_usedFirebase && _firebaseVerificationId != null) {
+        try {
+          final credential = PhoneAuthProvider.credential(
+            verificationId: _firebaseVerificationId!,
+            smsCode: otp,
+          );
+          final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+          final idToken = await userCred.user?.getIdToken();
+          if (idToken != null) {
+            final res = await widget.api.firebaseLogin(
+              phone: phoneParam,
+              idToken: idToken,
+              displayName: _otpNameCtrl.text.trim().isEmpty ? null : _otpNameCtrl.text.trim(),
+            );
+            await widget.onAuthenticated(res.user, res.nexconnToken);
+            return;
+          }
+        } catch (fbErr) {
+          debugPrint('Firebase sign in error: $fbErr, trying server fallback');
+        }
+      }
+
       final res = await widget.api.verifyOtp(
         phone: phoneParam,
         otp: otp,

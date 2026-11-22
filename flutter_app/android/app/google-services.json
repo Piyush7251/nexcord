@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "316351856545",
+    "project_id": "nexcord-42151",
+    "storage_bucket": "nexcord-42151.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:316351856545:android:e692d45f98bea8241615e0",
+        "android_client_info": {
+          "package_name": "ai.nexconn.nexcord_flutter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBlGXy9ycUqspUwcbjVVUq9Q2xhhQeZNPg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
