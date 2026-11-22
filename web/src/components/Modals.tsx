@@ -77,7 +77,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
   const [mobileStep, setMobileStep] = useState<'phone' | 'otp'>('phone');
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneDigits, setPhoneDigits] = useState('');
-  const [otpChannel, setOtpChannel] = useState<'whatsapp' | 'sms'>('whatsapp');
+  const [otpChannel, setOtpChannel] = useState<'whatsapp' | 'sms'>('sms');
   const [devOtpPreview, setDevOtpPreview] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -292,6 +292,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                   <div className="nc-otp-channel-row">
                     <button
                       type="button"
+                      className={`nc-otp-channel-btn ${otpChannel === 'sms' ? 'active' : ''}`}
+                      onClick={() => setOtpChannel('sms')}
+                    >
+                      <span className="nc-channel-ico">✉️</span>
+                      <div className="nc-channel-info">
+                        <strong>SMS Message</strong>
+                        <small>Cellular text message (Official)</small>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
                       className={`nc-otp-channel-btn ${otpChannel === 'whatsapp' ? 'active' : ''}`}
                       onClick={() => setOtpChannel('whatsapp')}
                     >
@@ -299,17 +310,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                       <div className="nc-channel-info">
                         <strong>WhatsApp</strong>
                         <small>Direct WhatsApp message</small>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={`nc-otp-channel-btn ${otpChannel === 'sms' ? 'active' : ''}`}
-                      onClick={() => setOtpChannel('sms')}
-                    >
-                      <span className="nc-channel-ico">✉️</span>
-                      <div className="nc-channel-info">
-                        <strong>SMS Message</strong>
-                        <small>Cellular text message</small>
                       </div>
                     </button>
                   </div>

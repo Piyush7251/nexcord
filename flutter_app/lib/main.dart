@@ -3419,7 +3419,7 @@ class _AuthScreenState extends State<_AuthScreen> {
   }
 
   String _countryCode = '+91';
-  String _otpChannel = 'whatsapp';
+  String _otpChannel = 'sms';
   String? _devOtp;
 
   void _openCountryPicker() {
@@ -3918,45 +3918,6 @@ class _AuthScreenState extends State<_AuthScreen> {
                         children: [
                           Expanded(
                             child: InkWell(
-                              onTap: () => setState(() => _otpChannel = 'whatsapp'),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-                                decoration: BoxDecoration(
-                                  color: _otpChannel == 'whatsapp' ? const Color(0x2823A55A) : const Color(0xFF1E1F22),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: _otpChannel == 'whatsapp' ? const Color(0xFF23A55A) : const Color(0xFF383A40),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Text('💬', style: TextStyle(fontSize: 15)),
-                                    const SizedBox(width: 5),
-                                    Flexible(
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          'WhatsApp',
-                                          maxLines: 1,
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.bold,
-                                            color: _otpChannel == 'whatsapp' ? Colors.white : const Color(0xFFB5BAC1),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: InkWell(
                               onTap: () => setState(() => _otpChannel = 'sms'),
                               borderRadius: BorderRadius.circular(8),
                               child: Container(
@@ -3984,6 +3945,45 @@ class _AuthScreenState extends State<_AuthScreen> {
                                             fontSize: 12.5,
                                             fontWeight: FontWeight.bold,
                                             color: _otpChannel == 'sms' ? Colors.white : const Color(0xFFB5BAC1),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _otpChannel = 'whatsapp'),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                                decoration: BoxDecoration(
+                                  color: _otpChannel == 'whatsapp' ? const Color(0x2823A55A) : const Color(0xFF1E1F22),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _otpChannel == 'whatsapp' ? const Color(0xFF23A55A) : const Color(0xFF383A40),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Text('💬', style: TextStyle(fontSize: 15)),
+                                    const SizedBox(width: 5),
+                                    Flexible(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          'WhatsApp',
+                                          maxLines: 1,
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: _otpChannel == 'whatsapp' ? Colors.white : const Color(0xFFB5BAC1),
                                           ),
                                         ),
                                       ),

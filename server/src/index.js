@@ -377,7 +377,7 @@ app.get('/api/auth/cooldown', wrap(async (req, res) => {
 
 app.post('/api/auth/send-otp', wrap(async (req, res) => {
   const { phone, channel } = req.body || {};
-  const requestedChannel = String(channel || 'whatsapp').toLowerCase() === 'sms' ? 'sms' : 'whatsapp';
+  const requestedChannel = String(channel || 'sms').toLowerCase() === 'whatsapp' ? 'whatsapp' : 'sms';
   const clean = normalizePhone(phone);
   if (!clean) {
     throw new HttpError(400, 'Invalid phone number format. Please provide a valid mobile number in international E.164 format (e.g. +919876543210 or +14155552671).');
