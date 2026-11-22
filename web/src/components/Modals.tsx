@@ -77,7 +77,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
   const [mobileStep, setMobileStep] = useState<'phone' | 'otp'>('phone');
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneDigits, setPhoneDigits] = useState('');
-  const [otpChannel, setOtpChannel] = useState<'whatsapp' | 'sms'>('sms');
+  const otpChannel = 'sms';
   const [devOtpPreview, setDevOtpPreview] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -138,7 +138,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
         setDevOtpPreview(res.devOtp);
       }
     } catch (e: any) {
-      setErr(e?.message || `Failed to send verification ${otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'}`);
+      setErr(e?.message || 'Failed to send verification SMS');
       if (e?.cooldownSeconds && e.cooldownSeconds > 0) {
         setCooldown(e.cooldownSeconds);
       }
@@ -287,34 +287,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                   </div>
                 </label>
 
-                <div className="nc-field">
-                  <span>RECEIVE VERIFICATION CODE VIA</span>
-                  <div className="nc-otp-channel-row">
-                    <button
-                      type="button"
-                      className={`nc-otp-channel-btn ${otpChannel === 'sms' ? 'active' : ''}`}
-                      onClick={() => setOtpChannel('sms')}
-                    >
-                      <span className="nc-channel-ico">✉️</span>
-                      <div className="nc-channel-info">
-                        <strong>SMS Message</strong>
-                        <small>Cellular text message (Official)</small>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className={`nc-otp-channel-btn ${otpChannel === 'whatsapp' ? 'active' : ''}`}
-                      onClick={() => setOtpChannel('whatsapp')}
-                    >
-                      <span className="nc-channel-ico">💬</span>
-                      <div className="nc-channel-info">
-                        <strong>WhatsApp</strong>
-                        <small>Direct WhatsApp message</small>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
                 {phoneDigits.replace(/\D/g, '') === '123456789' && (
                   <div style={{
                     background: 'rgba(88, 101, 242, 0.15)',
@@ -357,17 +329,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
 
                 <button type="submit" className="nc-btn primary full" disabled={busy}>
                   <Phone size={15} />
-                  <span>{busy ? 'Sending OTP...' : `Send ${otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} Verification Code`}</span>
+                  <span>{busy ? 'Sending OTP...' : 'Send SMS Verification Code'}</span>
                 </button>
               </form>
             ) : (
               <form onSubmit={handleVerify} className="nc-auth-form">
                 <div style={{ textAlign: 'left', marginBottom: 14 }}>
                   <h2 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px', color: '#f2f3f5' }}>
-                    Enter {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} Verification Code
+                    Enter SMS Verification Code
                   </h2>
                   <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    A 6-digit code was sent via {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS message'} to <strong>{fullPhone}</strong>.
+                    A 6-digit code was sent via SMS message to <strong>{fullPhone}</strong>.
                   </p>
                 </div>
 
@@ -476,7 +448,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                       ) : (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                           <RefreshCw size={13} />
-                          <span>Resend {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} Code</span>
+                          <span>Resend SMS Code</span>
                         </span>
                       )}
                     </button>

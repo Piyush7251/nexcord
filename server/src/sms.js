@@ -170,8 +170,8 @@ async function getWabaConfig(apiKey) {
   return null;
 }
 
-export async function sendSms({ phone, code, channel = 'sms' }) {
-  const chosenChannel = String(channel || 'sms').toLowerCase() === 'whatsapp' ? 'whatsapp' : 'sms';
+export async function sendSms({ phone, code }) {
+  const chosenChannel = 'sms';
 
   if (mockSmsHandler || process.env.NODE_ENV === 'test' || process.env.MOCK_SMS === 'true') {
     if (mockSmsHandler) return await mockSmsHandler({ phone, code, channel: chosenChannel });

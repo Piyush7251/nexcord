@@ -3908,93 +3908,6 @@ class _AuthScreenState extends State<_AuthScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'RECEIVE VERIFICATION CODE VIA',
-                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => setState(() => _otpChannel = 'sms'),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-                                decoration: BoxDecoration(
-                                  color: _otpChannel == 'sms' ? const Color(0x285865F2) : const Color(0xFF1E1F22),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: _otpChannel == 'sms' ? const Color(0xFF5865F2) : const Color(0xFF383A40),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Text('✉️', style: TextStyle(fontSize: 15)),
-                                    const SizedBox(width: 5),
-                                    Flexible(
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          'SMS Message',
-                                          maxLines: 1,
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.bold,
-                                            color: _otpChannel == 'sms' ? Colors.white : const Color(0xFFB5BAC1),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => setState(() => _otpChannel = 'whatsapp'),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-                                decoration: BoxDecoration(
-                                  color: _otpChannel == 'whatsapp' ? const Color(0x2823A55A) : const Color(0xFF1E1F22),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: _otpChannel == 'whatsapp' ? const Color(0xFF23A55A) : const Color(0xFF383A40),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Text('💬', style: TextStyle(fontSize: 15)),
-                                    const SizedBox(width: 5),
-                                    Flexible(
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          'WhatsApp',
-                                          maxLines: 1,
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.bold,
-                                            color: _otpChannel == 'whatsapp' ? Colors.white : const Color(0xFFB5BAC1),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                       const SizedBox(height: 16),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
@@ -4016,9 +3929,9 @@ class _AuthScreenState extends State<_AuthScreen> {
                                 children: [
                                   const Icon(Icons.send_rounded, size: 18),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    'Send ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS"} Code',
-                                    style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+                                  const Text(
+                                    'Send SMS Verification Code',
+                                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
                                   ),
                                 ],
                               ),
@@ -4028,9 +3941,9 @@ class _AuthScreenState extends State<_AuthScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'Enter ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS"} Code',
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                          const Text(
+                            'Enter SMS Verification Code',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
                           ),
                           TextButton(
                             onPressed: () => setState(() {
@@ -4043,7 +3956,7 @@ class _AuthScreenState extends State<_AuthScreen> {
                         ],
                       ),
                       Text(
-                        'Sent via ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS message"} to +${_cleanPhone()}',
+                        'Sent via SMS message to +${_cleanPhone()}',
                         style: const TextStyle(fontSize: 12.5, color: Color(0xFF949BA4)),
                       ),
                       const SizedBox(height: 12),
@@ -4190,7 +4103,7 @@ class _AuthScreenState extends State<_AuthScreen> {
                         child: TextButton(
                           onPressed: _cooldown > 0 || _busy ? null : _sendOtp,
                           child: Text(
-                            _cooldown > 0 ? 'Resend code in ${_cooldown}s' : 'Resend ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS"} Code',
+                            _cooldown > 0 ? 'Resend code in ${_cooldown}s' : 'Resend SMS Code',
                             style: TextStyle(
                               fontSize: 12.5,
                               color: _cooldown > 0 ? const Color(0xFF6D6F78) : const Color(0xFF5865F2),
