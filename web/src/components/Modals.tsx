@@ -163,9 +163,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
       } else if (code === 'auth/invalid-phone-number') {
         msg = 'Invalid phone number format for Google verification.';
       } else if (code === 'auth/quota-exceeded' || msg.includes('quota') || msg.includes('billing')) {
-        msg = 'SMS daily quota reached. Please add your number under "Phone numbers for testing" in Firebase Console.';
+        msg = 'Google billing/quota sync is updating across servers (takes 10-20 min after Blaze upgrade). To log in right now without waiting, add your number under "Phone numbers for testing" in Firebase Console!';
       } else if (code === 'auth/too-many-requests') {
-        msg = 'Too many requests in a short time. Google rate limit is active. Please add your number under "Phone numbers for testing" in Firebase Console for instant unlimited logins.';
+        msg = 'Too many requests in a short time. Please wait 2-3 minutes, or add your number under "Phone numbers for testing" in Firebase Console for instant logins.';
       }
       setErr(msg);
     } finally {
