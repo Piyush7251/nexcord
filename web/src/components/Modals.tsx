@@ -5,6 +5,7 @@ import {
   Check,
   Copy,
   Crown,
+  Download,
   Gamepad2,
   Hash,
   Image as ImageIcon,
@@ -18,6 +19,7 @@ import {
   Server as ServerIcon,
   Settings,
   Shield,
+  Smartphone,
   Star,
   Trash2,
   Tv,
@@ -582,6 +584,60 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
             </div>
           </div>
         )}
+
+        {/* Android APK Download Card */}
+        <div style={{
+          marginTop: 18,
+          padding: '12px 14px',
+          background: 'linear-gradient(135deg, rgba(88, 101, 242, 0.15) 0%, rgba(87, 242, 135, 0.1) 100%)',
+          border: '1px solid rgba(88, 101, 242, 0.35)',
+          borderRadius: 10,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}>
+            <div style={{
+              background: '#57F287',
+              borderRadius: 8,
+              padding: 7,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#111214'
+            }}>
+              <Smartphone size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#f2f3f5' }}>Nexcord for Android</div>
+              <div style={{ fontSize: 11, color: '#949ba4' }}>Get the official Flutter mobile app</div>
+            </div>
+          </div>
+          <a
+            href="https://github.com/Piyush7251/nexcord/releases/download/v1.0.0/Nexcord-Flutter.apk"
+            className="nc-btn"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: '7px 14px',
+              fontSize: 12,
+              fontWeight: 700,
+              background: '#5865F2',
+              color: '#ffffff',
+              textDecoration: 'none',
+              borderRadius: 6,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 6px rgba(88, 101, 242, 0.4)'
+            }}
+          >
+            <Download size={14} />
+            <span>Download APK</span>
+          </a>
+        </div>
 
         <div style={{ marginTop: 14, textAlign: 'center' }}>
           <button type="button" className="nc-link-btn muted" onClick={() => setShowServerUrl((v) => !v)}>

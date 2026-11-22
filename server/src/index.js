@@ -278,6 +278,16 @@ function newSession(user) {
 app.get('/api/health', (_req, res) => res.json({ ok: true, nexconnConfigured: nx.isConfigured() }));
 app.get('/api/config', (_req, res) => res.json(nx.getConfig()));
 
+// APK direct download route
+app.get('/api/download/apk', (_req, res) => {
+  const localApk = path.join(__dirname, '..', '..', 'Nexcord-Flutter.apk');
+  if (fs.existsSync(localApk)) {
+    return res.download(localApk, 'Nexcord-Flutter.apk');
+  }
+  // Redirect to official GitHub Release CDN
+  res.redirect('https://github.com/Piyush7251/nexcord/releases/download/v1.0.0/Nexcord-Flutter.apk');
+});
+
 // ICE server settings are needed by authenticated clients before they create
 // peer connections. TURN credentials remain server controlled and are only
 // returned to signed-in users.
