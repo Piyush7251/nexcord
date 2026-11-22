@@ -2707,6 +2707,74 @@
   gap: 8px;
 }
 
+.nc-phone-country-select {
+  width: 100%;
+  background: #1e1f22;
+  border: 1px solid #3f4147;
+  border-radius: 6px;
+  color: #f2f3f5;
+  font-size: 13.5px;
+  padding: 9px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  outline: none;
+}
+.nc-phone-country-select:focus {
+  border-color: #5865f2;
+}
+
+.nc-otp-channel-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.nc-otp-channel-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1e1f22;
+  border: 1.5px solid #383a40;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #dbdee1;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.nc-otp-channel-btn:hover {
+  background: #2b2d31;
+  border-color: #4e5058;
+}
+
+.nc-otp-channel-btn.active {
+  background: rgba(88, 101, 242, 0.14);
+  border-color: #5865f2;
+  color: #ffffff;
+}
+
+.nc-channel-ico {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.nc-channel-info strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2f3f5;
+}
+
+.nc-channel-info small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
 .nc-phone-prefix {
   width: 90px;
   flex-shrink: 0;

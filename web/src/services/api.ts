@@ -137,10 +137,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  sendOtp: (phone: string) =>
+  sendOtp: (phone: string, channel: 'whatsapp' | 'sms' = 'whatsapp') =>
     req<{
       ok: boolean;
       phone: string;
+      channel?: string;
+      provider?: string;
       devOtp?: string;
       message: string;
       cooldownSeconds?: number;
@@ -148,7 +150,7 @@ export const api = {
       cooldownUntil?: number;
     }>('/api/auth/send-otp', {
       method: 'POST',
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone, channel }),
     }),
   verifyOtp: (phone: string, otp: string, displayName?: string) =>
     req<{ session: string; user: User; nexconnToken: string }>('/api/auth/verify-otp', {

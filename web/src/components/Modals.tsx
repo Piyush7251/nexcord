@@ -49,11 +49,36 @@ interface AuthScreenProps {
   onVerifyOtp: (phone: string, otp: string, displayName?: string) => Promise<void>;
 }
 
+const POPULAR_COUNTRY_CODES = [
+  { code: '+91', name: 'India', flag: '🇮🇳' },
+  { code: '+1', name: 'USA / Canada', flag: '🇺🇸' },
+  { code: '+44', name: 'United Kingdom', flag: '🇬🇧' },
+  { code: '+971', name: 'UAE', flag: '🇦🇪' },
+  { code: '+966', name: 'Saudi Arabia', flag: '🇸🇦' },
+  { code: '+49', name: 'Germany', flag: '🇩🇪' },
+  { code: '+33', name: 'France', flag: '🇫🇷' },
+  { code: '+61', name: 'Australia', flag: '🇦🇺' },
+  { code: '+65', name: 'Singapore', flag: '🇸🇬' },
+  { code: '+81', name: 'Japan', flag: '🇯🇵' },
+  { code: '+55', name: 'Brazil', flag: '🇧🇷' },
+  { code: '+234', name: 'Nigeria', flag: '🇳🇬' },
+  { code: '+92', name: 'Pakistan', flag: '🇵🇰' },
+  { code: '+880', name: 'Bangladesh', flag: '🇧🇩' },
+  { code: '+977', name: 'Nepal', flag: '🇳🇵' },
+  { code: '+60', name: 'Malaysia', flag: '🇲🇾' },
+  { code: '+62', name: 'Indonesia', flag: '🇮🇩' },
+  { code: '+7', name: 'Russia / KZ', flag: '🇷🇺' },
+  { code: '+39', name: 'Italy', flag: '🇮🇹' },
+  { code: '+34', name: 'Spain', flag: '🇪🇸' },
+];
+
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onDemoLogin, onVerifyOtp }) => {
   const [authMethod, setAuthMethod] = useState<'mobile' | 'password'>('mobile');
   const [mobileStep, setMobileStep] = useState<'phone' | 'otp'>('phone');
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneDigits, setPhoneDigits] = useState('');
+  const [otpChannel, setOtpChannel] = useState<'whatsapp' | 'sms'>('whatsapp');
+  const [devOtpPreview, setDevOtpPreview] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [cooldown, setCooldown] = useState(0);
@@ -96,8 +121,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
           return;
         }
       } else {
-        if (cleanDigits.length < 8 || cleanDigits.length > 15) {
-          setErr('The mobile number entered is incorrect. Please check the number and try again later.');
+        if (cleanDigits.length < 7 || cleanDigits.length > 15) {
+          setErr('The mobile number entered is incorrect. Please check the international number (7-15 digits) and try again later.');
           return;
         }
       }
@@ -105,12 +130,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
     setBusy(true);
     try {
       if (serverUrl.trim()) setApiBase(serverUrl.trim());
-      const res = await api.sendOtp(fullPhone);
+      const res = await api.sendOtp(fullPhone, otpChannel);
       setMobileStep('otp');
       const cd = res.cooldownSeconds ?? 30;
       setCooldown(cd);
+      if (res.devOtp) {
+        setDevOtpPreview(res.devOtp);
+      }
     } catch (e: any) {
-      setErr(e?.message || 'Failed to send verification SMS');
+      setErr(e?.message || `Failed to send verification ${otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'}`);
       if (e?.cooldownSeconds && e.cooldownSeconds > 0) {
         setCooldown(e.cooldownSeconds);
       }
@@ -209,14 +237,34 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
           <div>
             {mobileStep === 'phone' ? (
               <form onSubmit={handleSendOtp} className="nc-auth-form">
-                <div style={{ textAlign: 'left', marginBottom: 6 }}>
+                <div style={{ textAlign: 'left', marginBottom: 8 }}>
                   <h2 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px', color: '#f2f3f5' }}>
                     Verify Your Mobile Number
                   </h2>
                   <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    Enter your phone number to receive a 6-digit SMS verification code.
+                    Enter your international or domestic mobile number to receive your 6-digit OTP code.
                   </p>
                 </div>
+
+                <label className="nc-field">
+                  <span>COUNTRY & REGION</span>
+                  <select
+                    className="nc-phone-country-select"
+                    value={POPULAR_COUNTRY_CODES.some((c) => c.code === countryCode) ? countryCode : 'custom'}
+                    onChange={(e) => {
+                      if (e.target.value !== 'custom') {
+                        setCountryCode(e.target.value);
+                      }
+                    }}
+                  >
+                    {POPULAR_COUNTRY_CODES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.flag} {c.name} ({c.code})
+                      </option>
+                    ))}
+                    <option value="custom">🌍 Custom Dial Code</option>
+                  </select>
+                </label>
 
                 <label className="nc-field">
                   <span>MOBILE PHONE NUMBER</span>
@@ -232,12 +280,40 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                       type="tel"
                       value={phoneDigits}
                       onChange={(e) => setPhoneDigits(e.target.value)}
-                      placeholder="e.g. 98765 43210 (or 123456789 for Admin)"
+                      placeholder="e.g. 98765 43210 or 4155552671"
                       required
                       autoFocus
                     />
                   </div>
                 </label>
+
+                <div className="nc-field">
+                  <span>RECEIVE VERIFICATION CODE VIA</span>
+                  <div className="nc-otp-channel-row">
+                    <button
+                      type="button"
+                      className={`nc-otp-channel-btn ${otpChannel === 'whatsapp' ? 'active' : ''}`}
+                      onClick={() => setOtpChannel('whatsapp')}
+                    >
+                      <span className="nc-channel-ico">💬</span>
+                      <div className="nc-channel-info">
+                        <strong>WhatsApp</strong>
+                        <small>Direct WhatsApp message</small>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className={`nc-otp-channel-btn ${otpChannel === 'sms' ? 'active' : ''}`}
+                      onClick={() => setOtpChannel('sms')}
+                    >
+                      <span className="nc-channel-ico">✉️</span>
+                      <div className="nc-channel-info">
+                        <strong>SMS Message</strong>
+                        <small>Cellular text message</small>
+                      </div>
+                    </button>
+                  </div>
+                </div>
 
                 {phoneDigits.replace(/\D/g, '') === '123456789' && (
                   <div style={{
@@ -281,17 +357,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
 
                 <button type="submit" className="nc-btn primary full" disabled={busy}>
                   <Phone size={15} />
-                  <span>{busy ? 'Sending OTP...' : 'Send WhatsApp Verification Code'}</span>
+                  <span>{busy ? 'Sending OTP...' : `Send ${otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} Verification Code`}</span>
                 </button>
               </form>
             ) : (
               <form onSubmit={handleVerify} className="nc-auth-form">
                 <div style={{ textAlign: 'left', marginBottom: 14 }}>
                   <h2 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px', color: '#f2f3f5' }}>
-                    Enter WhatsApp Verification Code
+                    Enter {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} Verification Code
                   </h2>
                   <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    A 6-digit code was sent to your WhatsApp at <strong>{fullPhone}</strong>.
+                    A 6-digit code was sent via {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS message'} to <strong>{fullPhone}</strong>.
                   </p>
                 </div>
 
@@ -308,6 +384,34 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                     required
                   />
                 </label>
+
+                {devOtpPreview && (
+                  <div style={{
+                    background: 'rgba(87, 242, 135, 0.12)',
+                    border: '1px solid #57F287',
+                    color: '#57F287',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    fontSize: 12.5,
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>🔑 Verification Code: <strong>{devOtpPreview}</strong></span>
+                    </div>
+                    <button
+                      type="button"
+                      className="nc-btn"
+                      style={{ padding: '3px 10px', fontSize: 11, background: '#57F287', color: '#111', fontWeight: 'bold' }}
+                      onClick={() => setOtp(devOtpPreview)}
+                    >
+                      Fill Code
+                    </button>
+                  </div>
+                )}
 
                 {(phoneDigits.replace(/\D/g, '') === '123456789' || fullPhone.includes('123456789')) && (
                   <div style={{
@@ -372,7 +476,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                       ) : (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                           <RefreshCw size={13} />
-                          <span>Resend WhatsApp Code</span>
+                          <span>Resend {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} Code</span>
                         </span>
                       )}
                     </button>

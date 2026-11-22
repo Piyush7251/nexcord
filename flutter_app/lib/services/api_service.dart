@@ -197,8 +197,8 @@ class ApiService {
         if (fast2smsApiKey.isNotEmpty) 'fast2smsApiKey': fast2smsApiKey,
       });
 
-  Future<Map<String, dynamic>> sendOtp(String phone) async {
-    return _req('POST', '/api/auth/send-otp', {'phone': phone});
+  Future<Map<String, dynamic>> sendOtp(String phone, {String channel = 'whatsapp'}) async {
+    return _req('POST', '/api/auth/send-otp', {'phone': phone, 'channel': channel});
   }
 
   Future<({String session, NexcordUser user, String nexconnToken})> verifyOtp({

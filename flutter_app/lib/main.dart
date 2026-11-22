@@ -3374,26 +3374,111 @@ class _AuthScreenState extends State<_AuthScreen> {
     });
   }
 
+  String _countryCode = '+91';
+  String _otpChannel = 'whatsapp';
+  String? _devOtp;
+
+  void _openCountryPicker() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF2B2D31),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        final list = [
+          (code: '+91', name: 'India', flag: '🇮🇳'),
+          (code: '+1', name: 'USA / Canada', flag: '🇺🇸'),
+          (code: '+44', name: 'United Kingdom', flag: '🇬🇧'),
+          (code: '+971', name: 'UAE', flag: '🇦🇪'),
+          (code: '+966', name: 'Saudi Arabia', flag: '🇸🇦'),
+          (code: '+49', name: 'Germany', flag: '🇩🇪'),
+          (code: '+33', name: 'France', flag: '🇫🇷'),
+          (code: '+61', name: 'Australia', flag: '🇦🇺'),
+          (code: '+65', name: 'Singapore', flag: '🇸🇬'),
+          (code: '+81', name: 'Japan', flag: '🇯🇵'),
+          (code: '+55', name: 'Brazil', flag: '🇧🇷'),
+          (code: '+234', name: 'Nigeria', flag: '🇳🇬'),
+          (code: '+92', name: 'Pakistan', flag: '🇵🇰'),
+          (code: '+880', name: 'Bangladesh', flag: '🇧🇩'),
+          (code: '+977', name: 'Nepal', flag: '🇳🇵'),
+          (code: '+60', name: 'Malaysia', flag: '🇲🇾'),
+          (code: '+62', name: 'Indonesia', flag: '🇮🇩'),
+          (code: '+7', name: 'Russia / KZ', flag: '🇷🇺'),
+          (code: '+39', name: 'Italy', flag: '🇮🇹'),
+          (code: '+34', name: 'Spain', flag: '🇪🇸'),
+        ];
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text(
+                  'Select Country / Dial Code',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+              const Divider(color: Color(0xFF383A40)),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: list.length,
+                  itemBuilder: (context, index) {
+                    final c = list[index];
+                    final isSel = c.code == _countryCode;
+                    return ListTile(
+                      leading: Text(c.flag, style: const TextStyle(fontSize: 24)),
+                      title: Text(c.name, style: const TextStyle(color: Colors.white)),
+                      trailing: Text(
+                        c.code,
+                        style: TextStyle(
+                          color: isSel ? const Color(0xFF5865F2) : const Color(0xFF949BA4),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      selected: isSel,
+                      selectedTileColor: const Color(0x285865F2),
+                      onTap: () {
+                        setState(() => _countryCode = c.code);
+                        Navigator.pop(ctx);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   String _cleanPhone() {
-    String p = _phoneCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
-    if (p == '123456789' || p == '91123456789') return '123456789';
-    if (p.length == 10) p = '91$p';
-    return p;
+    final raw = _phoneCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
+    if (raw == '123456789' || raw == '91123456789') return '123456789';
+    final prefix = _countryCode.replaceAll(RegExp(r'\D'), '');
+    if (raw.startsWith(prefix) && raw.length > prefix.length + 5) {
+      return raw;
+    }
+    return '$prefix$raw';
   }
 
   Future<void> _sendOtp() async {
-    final clean = _cleanPhone();
-    final isAdmin = clean == '123456789';
+    final rawDigits = _phoneCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
+    final isAdmin = rawDigits == '123456789' || rawDigits == '91123456789';
     if (!isAdmin) {
-      String ten = clean;
-      if (ten.startsWith('91') && ten.length == 12) {
-        ten = ten.substring(2);
-      }
-      final isRepeating = RegExp(r'^(\d)\1{9}$').hasMatch(ten);
-      final isTenDigitIndian = RegExp(r'^[6-9]\d{9}$').hasMatch(ten);
-      if (!isTenDigitIndian || isRepeating) {
-        setState(() => _err = 'The phone number entered is incorrect. Please check your 10-digit number and try again later.');
-        return;
+      if (_countryCode == '+91') {
+        final isRepeating = RegExp(r'^(\d)\1{9}$').hasMatch(rawDigits);
+        final isTenDigitIndian = RegExp(r'^[6-9]\d{9}$').hasMatch(rawDigits);
+        if (!isTenDigitIndian || isRepeating) {
+          setState(() => _err = 'The phone number entered is incorrect. Please check your 10-digit number and try again later.');
+          return;
+        }
+      } else {
+        if (rawDigits.length < 7 || rawDigits.length > 15) {
+          setState(() => _err = 'The phone number entered is incorrect. Please check the international number (7-15 digits) and try again later.');
+          return;
+        }
       }
     }
     setState(() {
@@ -3403,13 +3488,17 @@ class _AuthScreenState extends State<_AuthScreen> {
     });
     try {
       await widget.api.setBaseUrl(_urlCtrl.text.trim());
-      final phoneParam = clean == '123456789' ? '123456789' : '+$clean';
-      final res = await widget.api.sendOtp(phoneParam);
+      final clean = _cleanPhone();
+      final phoneParam = isAdmin ? '123456789' : '+$clean';
+      final res = await widget.api.sendOtp(phoneParam, channel: _otpChannel);
       setState(() {
         _otpSent = true;
         _info = res['message']?.toString() ?? 'Verification code sent to $phoneParam';
-        if (clean == '123456789') {
+        if (isAdmin) {
           _otpCtrl.text = '123456';
+        }
+        if (res['devOtp'] != null) {
+          _devOtp = res['devOtp'].toString();
         }
       });
       _startCooldown();
@@ -3713,16 +3802,27 @@ class _AuthScreenState extends State<_AuthScreen> {
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1E1F22),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFF383A40)),
-                            ),
-                            child: const Text(
-                              '🇮🇳 +91',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                          InkWell(
+                            onTap: _openCountryPicker,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E1F22),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFF383A40)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _countryCode,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.arrow_drop_down, color: Color(0xFF949BA4), size: 18),
+                                ],
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -3732,7 +3832,7 @@ class _AuthScreenState extends State<_AuthScreen> {
                               keyboardType: TextInputType.phone,
                               style: const TextStyle(color: Colors.white, fontSize: 15),
                               decoration: InputDecoration(
-                                hintText: '9876543210',
+                                hintText: _countryCode == '+91' ? '9876543210' : 'Mobile number',
                                 hintStyle: const TextStyle(color: Color(0xFF6D6F78)),
                                 filled: true,
                                 fillColor: const Color(0xFF1E1F22),
@@ -3754,6 +3854,81 @@ class _AuthScreenState extends State<_AuthScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'RECEIVE VERIFICATION CODE VIA',
+                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF949BA4), letterSpacing: 0.5),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _otpChannel = 'whatsapp'),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: _otpChannel == 'whatsapp' ? const Color(0x2823A55A) : const Color(0xFF1E1F22),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _otpChannel == 'whatsapp' ? const Color(0xFF23A55A) : const Color(0xFF383A40),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Text('💬', style: TextStyle(fontSize: 16)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'WhatsApp',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: _otpChannel == 'whatsapp' ? Colors.white : const Color(0xFFB5BAC1),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _otpChannel = 'sms'),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: _otpChannel == 'sms' ? const Color(0x285865F2) : const Color(0xFF1E1F22),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _otpChannel == 'sms' ? const Color(0xFF5865F2) : const Color(0xFF383A40),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Text('✉️', style: TextStyle(fontSize: 16)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'SMS Message',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: _otpChannel == 'sms' ? Colors.white : const Color(0xFFB5BAC1),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 16),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
@@ -3770,14 +3945,14 @@ class _AuthScreenState extends State<_AuthScreen> {
                                 width: 18,
                                 child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                               )
-                            : const Row(
+                            : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.send_rounded, size: 18),
-                                  SizedBox(width: 8),
+                                  const Icon(Icons.send_rounded, size: 18),
+                                  const SizedBox(width: 8),
                                   Text(
-                                    'Send Verification Code',
-                                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+                                    'Send ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS"} Code',
+                                    style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
                                   ),
                                 ],
                               ),
@@ -3787,9 +3962,9 @@ class _AuthScreenState extends State<_AuthScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Enter 6-Digit Code',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                          Text(
+                            'Enter ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS"} Code',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
                           ),
                           TextButton(
                             onPressed: () => setState(() {
@@ -3802,7 +3977,7 @@ class _AuthScreenState extends State<_AuthScreen> {
                         ],
                       ),
                       Text(
-                        'Sent to +${_cleanPhone()}',
+                        'Sent via ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS message"} to +${_cleanPhone()}',
                         style: const TextStyle(fontSize: 12.5, color: Color(0xFF949BA4)),
                       ),
                       const SizedBox(height: 12),
@@ -3859,6 +4034,35 @@ class _AuthScreenState extends State<_AuthScreen> {
                           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         ),
                       ),
+                      if (_devOtp != null) ...[
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onTap: () {
+                            _otpCtrl.text = _devOtp!;
+                            setState(() {});
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0x2857F287),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: const Color(0xFF57F287)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.key_rounded, size: 14, color: Color(0xFF57F287)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Tap to fill OTP: $_devOtp',
+                                  style: const TextStyle(fontSize: 12, color: Color(0xFF57F287), fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 10),
                       // Quick Test Auto-fill Button
                       GestureDetector(
@@ -3920,7 +4124,7 @@ class _AuthScreenState extends State<_AuthScreen> {
                         child: TextButton(
                           onPressed: _cooldown > 0 || _busy ? null : _sendOtp,
                           child: Text(
-                            _cooldown > 0 ? 'Resend code in ${_cooldown}s' : 'Resend Verification Code',
+                            _cooldown > 0 ? 'Resend code in ${_cooldown}s' : 'Resend ${_otpChannel == "whatsapp" ? "WhatsApp" : "SMS"} Code',
                             style: TextStyle(
                               fontSize: 12.5,
                               color: _cooldown > 0 ? const Color(0xFF6D6F78) : const Color(0xFF5865F2),

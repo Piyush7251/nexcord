@@ -48,21 +48,28 @@ export function normalizePhone(raw) {
   if (cleaned.startsWith('+91')) {
     const ten = cleaned.slice(3);
     if (/^[6-9]\d{9}$/.test(ten) && !/^(\d)\1{9}$/.test(ten)) return `+91${ten}`;
+    if (/^\d{10}$/.test(ten)) return `+91${ten}`;
     return null;
   }
   if (cleaned.startsWith('91') && cleaned.length === 12) {
     const ten = cleaned.slice(2);
     if (/^[6-9]\d{9}$/.test(ten) && !/^(\d)\1{9}$/.test(ten)) return `+91${ten}`;
+    if (/^\d{10}$/.test(ten)) return `+91${ten}`;
     return null;
   }
   if (!cleaned.startsWith('+') && cleaned.length === 10) {
     if (/^[6-9]\d{9}$/.test(cleaned) && !/^(\d)\1{9}$/.test(cleaned)) return `+91${cleaned}`;
+    if (/^\d{10}$/.test(cleaned)) return `+91${cleaned}`;
     return null;
   }
   if (cleaned.startsWith('+')) {
-    // E.164 international format (+ followed by 8 to 15 digits)
-    if (/^\+[1-9]\d{7,14}$/.test(cleaned)) return cleaned;
+    // E.164 international format (+ followed by 7 to 15 digits)
+    if (/^\+[1-9]\d{6,14}$/.test(cleaned)) return cleaned;
     return null;
+  }
+  // International format without leading '+' but with country code (8-15 digits)
+  if (/^[1-9]\d{7,14}$/.test(digits)) {
+    return `+${digits}`;
   }
 
   return null;

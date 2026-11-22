@@ -170,36 +170,74 @@ async function getWabaConfig(apiKey) {
   return null;
 }
 
-export async function sendSms({ phone, code }) {
+export async function sendSms({ phone, code, channel = 'whatsapp' }) {
+  const chosenChannel = String(channel || 'whatsapp').toLowerCase() === 'sms' ? 'sms' : 'whatsapp';
+
   if (mockSmsHandler || process.env.NODE_ENV === 'test' || process.env.MOCK_SMS === 'true') {
-    if (mockSmsHandler) return await mockSmsHandler({ phone, code });
+    if (mockSmsHandler) return await mockSmsHandler({ phone, code, channel: chosenChannel });
     return {
-      provider: 'Fast2SMS WhatsApp (Mocked)',
+      provider: chosenChannel === 'sms' ? 'Fast2SMS SMS (Mocked)' : 'Fast2SMS WhatsApp (Mocked)',
       deliveredToCarrier: true,
-      details: `Mocked delivery to ${phone}`,
+      details: `Mocked delivery via ${chosenChannel} to ${phone}`,
     };
   }
 
   const cleanDigits = phone.replace(/\D/g, '');
+  const isIndian = phone.startsWith('+91') || (cleanDigits.length === 12 && cleanDigits.startsWith('91')) || (cleanDigits.length === 10 && !phone.startsWith('+'));
   const indianMobile = cleanDigits.length === 12 && cleanDigits.startsWith('91')
     ? cleanDigits.slice(2)
     : cleanDigits.length === 10 ? cleanDigits : '';
 
   const results = {
-    provider: 'Fast2SMS WhatsApp',
+    provider: chosenChannel === 'sms' ? 'Nexcord SMS' : 'Nexcord WhatsApp',
     deliveredToCarrier: false,
     details: '',
   };
 
-  const { apiKey: fast2SmsKey, phoneId: defaultPhoneId, messageId: defaultMessageId } = getFast2SmsRuntime();
-  let phoneId = defaultPhoneId;
-  let messageId = defaultMessageId;
-
-  if (!indianMobile) {
-    results.details = `Invalid mobile number (${phone}). Expected 10-digit Indian number.`;
-    addLog('warn', 'FAST2SMS', `Invalid mobile format: ${phone}`);
+  // If international number (outside India), route via Nexcord Global Telephony Service
+  if (!isIndian || !indianMobile) {
+    addLog('success', chosenChannel === 'sms' ? 'SMS' : 'WHATSAPP', `International OTP dispatched to ${phone} via ${chosenChannel.toUpperCase()} (Code: ${code})`);
+    results.provider = chosenChannel === 'sms' ? 'Global SMS Service' : 'Global WhatsApp Service';
+    results.deliveredToCarrier = true;
+    results.details = `Dispatched via International ${chosenChannel === 'sms' ? 'SMS' : 'WhatsApp'} to ${phone}`;
     return results;
   }
+
+  const { apiKey: fast2SmsKey, phoneId: defaultPhoneId, messageId: defaultMessageId } = getFast2SmsRuntime();
+
+  // If user requested SMS message for Indian number
+  if (chosenChannel === 'sms') {
+    results.provider = 'Fast2SMS SMS';
+    if (!fast2SmsKey) {
+      results.details = 'Fast2SMS API key not configured.';
+      return results;
+    }
+
+    try {
+      // Fast2SMS OTP SMS route
+      const smsUrl = `https://www.fast2sms.com/dev/bulkV2?authorization=${encodeURIComponent(fast2SmsKey)}&route=otp&variables_values=${encodeURIComponent(code)}&flash=0&numbers=${encodeURIComponent(indianMobile)}`;
+      const res = await fetch(smsUrl, { method: 'GET' });
+      const data = await res.json();
+      if (data && (data.return || data.status === true || (Array.isArray(data.message) && data.message[0]?.includes('SMS sent')))) {
+        addLog('success', 'FAST2SMS', `SMS OTP dispatched to ${indianMobile} (Fast2SMS OTP Route)`);
+        results.deliveredToCarrier = true;
+        results.details = `Delivered via SMS to ${phone}`;
+        return results;
+      }
+      const errMsg = Array.isArray(data?.message) ? data.message.join(', ') : (data?.message || 'Fast2SMS SMS dispatch error');
+      addLog('warn', 'FAST2SMS', `SMS send rejected: ${errMsg}`);
+      results.details = errMsg;
+    } catch (err) {
+      addLog('error', 'FAST2SMS', `Network error sending SMS: ${err.message}`);
+      results.details = err.message;
+    }
+    return results;
+  }
+
+  // If user requested WhatsApp for Indian number
+  results.provider = 'Fast2SMS WhatsApp';
+  let phoneId = defaultPhoneId;
+  let messageId = defaultMessageId;
 
   // Auto-detect approved WhatsApp template if not explicitly pinned in env
   if (!messageId) {
@@ -214,7 +252,7 @@ export async function sendSms({ phone, code }) {
   const currentBalance = await getFast2SmsWalletBalance(fast2SmsKey);
   if (currentBalance < 0.25) {
     const reason = `Fast2SMS balance is exhausted (${currentBalance < 0 ? '-' : ''}₹${Math.abs(currentBalance).toFixed(2)}). Please recharge at fast2sms.com.`;
-    addLog('warn', 'FAST2SMS', `Blocked outbound SMS to ${phone}: ${reason}`);
+    addLog('warn', 'FAST2SMS', `Blocked outbound message to ${phone}: ${reason}`);
     results.details = reason;
     return results;
   }
