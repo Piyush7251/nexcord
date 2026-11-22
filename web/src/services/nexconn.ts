@@ -73,7 +73,10 @@ class NexconnService {
   private remoteStreams: Map<string, MediaStream> = new Map();
   private remoteVideoElements: Map<string, HTMLVideoElement> = new Map();
   private remoteAudioElements: Map<string, HTMLAudioElement> = new Map();
+  private remoteGainNodes: Map<string, GainNode> = new Map();
   private audioContext: AudioContext | null = null;
+  public gameAudioMode: boolean = false;
+  public gameAudioVolume: number = 1.5;
   private isDeafened: boolean = false;
   private currentCallId: string = '';
   private currentUserId: string = '';
@@ -787,6 +790,31 @@ class NexconnService {
       if (audio.muted !== this.isDeafened) {
         audio.muted = this.isDeafened;
       }
+      audio.volume = Math.max(0.0, Math.min(1.0, this.gameAudioVolume));
+
+      // Route through Web Audio GainNode for digital boost up to 250%
+      if (!this.remoteGainNodes.has(userId)) {
+        try {
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioCtx) {
+            if (!this.audioContext || this.audioContext.state === 'closed') {
+              this.audioContext = new AudioCtx();
+            }
+            if (this.audioContext.state === 'suspended') {
+              this.audioContext.resume().catch(() => {});
+            }
+            const src = this.audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
+            const gain = this.audioContext.createGain();
+            gain.gain.value = this.isDeafened ? 0 : this.gameAudioVolume;
+            src.connect(gain);
+            gain.connect(this.audioContext.destination);
+            this.remoteGainNodes.set(userId, gain);
+            audio.muted = true; // Web Audio node handles sound output with gain boost
+          }
+        } catch (webaudioErr) {
+          console.warn('[WebAudio] Fallback to HTMLAudioElement:', webaudioErr);
+        }
+      }
       const curAudioTrack = (audio.srcObject as MediaStream)?.getAudioTracks()[0] || null;
       if (curAudioTrack !== audioTrack) {
         audio.srcObject = new MediaStream([audioTrack]);
@@ -807,6 +835,78 @@ class NexconnService {
     this.isDeafened = deaf;
     this.remoteAudioElements.forEach((audio) => {
       audio.muted = deaf;
+    });
+    this.remoteGainNodes.forEach((gainNode) => {
+      try {
+        gainNode.gain.value = deaf ? 0 : this.gameAudioVolume;
+      } catch {}
+    });
+  }
+
+  getAudioConstraints(isGameMode: boolean = this.gameAudioMode): MediaTrackConstraints {
+    if (isGameMode) {
+      return {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: true,
+        googEchoCancellation: false,
+        googAutoGainControl: true,
+        googNoiseSuppression: false,
+        googHighpassFilter: false,
+        googAudioMirroring: false,
+        googTypingNoiseDetection: false,
+      } as any;
+    } else {
+      return {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        googEchoCancellation: true,
+        googAutoGainControl: true,
+        googNoiseSuppression: true,
+        googHighpassFilter: true,
+      } as any;
+    }
+  }
+
+  async setGameAudioMode(enabled: boolean, force = false): Promise<void> {
+    if (this.gameAudioMode === enabled && !force) return;
+    this.gameAudioMode = enabled;
+    this.log('call', 'GameAudio.setMode', `gameAudioMode=${enabled} (AEC Bypass: ${enabled ? 'ON' : 'NORMAL'})`, 'ok');
+
+    const constraints = this.getAudioConstraints(enabled);
+    if (this.localStream) {
+      const audioTracks = this.localStream.getAudioTracks();
+      for (const track of audioTracks) {
+        try {
+          await track.applyConstraints(constraints);
+        } catch (e) {
+          console.warn('[VoiceChat] applyConstraints failed:', e);
+        }
+      }
+    }
+    await this.applyAudioVolume();
+    this.notifyChange();
+  }
+
+  async setGameAudioVolume(vol: number): Promise<void> {
+    this.gameAudioVolume = Math.max(0.0, Math.min(2.5, vol));
+    await this.applyAudioVolume();
+    this.notifyChange();
+  }
+
+  async applyAudioVolume(): Promise<void> {
+    const vol = this.gameAudioVolume;
+    this.remoteGainNodes.forEach((gainNode) => {
+      try {
+        gainNode.gain.value = this.isDeafened ? 0 : vol;
+      } catch {}
+    });
+    this.remoteAudioElements.forEach((audio) => {
+      try {
+        audio.volume = Math.max(0.0, Math.min(1.0, vol));
+        if (this.isDeafened) audio.muted = true;
+      } catch {}
     });
   }
 
@@ -1434,8 +1534,14 @@ class NexconnService {
             this.callbacks.onScreenShareEnded?.();
           };
         }
+
+        // Automatically switch WebRTC audio constraints to AEC Bypass (Game Audio Mode)
+        // and default to 150% digital gain boost
+        await this.setGameAudioMode(true, true);
+        await this.setGameAudioVolume(1.5);
+
         await this.syncTracksToPeers(true);
-        this.log('call', 'ScreenShare.start', 'Started screen capture stream', 'ok');
+        this.log('call', 'ScreenShare.start', 'Started screen capture stream with AEC Bypass ON & 150% gain boost', 'ok');
         return stream;
       }
       return null;
@@ -1481,7 +1587,7 @@ class NexconnService {
         let aStream: MediaStream | null = null;
         try {
           aStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            audio: this.getAudioConstraints(),
           });
         } catch {
           aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1497,7 +1603,7 @@ class NexconnService {
       let stream: MediaStream | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: audio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
+          audio: audio ? this.getAudioConstraints() : false,
           video: video ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'user' } } : false,
         });
       } catch {
@@ -1553,6 +1659,11 @@ class NexconnService {
       } catch {}
       this.remoteAudioElements.delete(userId);
     }
+    const gain = this.remoteGainNodes.get(userId);
+    if (gain) {
+      try { gain.disconnect(); } catch {}
+      this.remoteGainNodes.delete(userId);
+    }
     this.remoteStreams.delete(userId);
     this.remoteVideoElements.delete(userId);
     for (const key of Array.from(this.pendingCandidates.keys())) {
@@ -1590,6 +1701,10 @@ class NexconnService {
       } catch {}
     });
     this.remoteAudioElements.clear();
+    this.remoteGainNodes.forEach((gain) => {
+      try { gain.disconnect(); } catch {}
+    });
+    this.remoteGainNodes.clear();
   }
 }
 

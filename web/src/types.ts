@@ -195,6 +195,8 @@ export interface CallSessionState {
   cameraEnabled: boolean;
   deafened: boolean;
   screenSharing: boolean;
+  gameAudioMode?: boolean;
+  gameAudioVolume?: number;
 }
 
 export interface SdkLogEntry {

@@ -1968,6 +1968,202 @@
   color: #57f287;
 }
 
+/* =========================================================
+   Game / Stream Audio Volume Slider & AEC Bypass Bar
+   ========================================================= */
+.nc-game-audio-bar {
+  background: #1e1f22;
+  border: 1px solid rgba(88, 101, 242, 0.45);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 0 auto 10px auto;
+  max-width: 520px;
+  width: 95%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(88, 101, 242, 0.15);
+  animation: ncSlideUp 0.25s ease-out;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 20;
+}
+
+@keyframes ncSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.nc-game-audio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nc-game-audio-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.nc-game-audio-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nc-game-vol-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #57f287;
+  background: rgba(87, 242, 135, 0.15);
+  border: 1px solid rgba(87, 242, 135, 0.35);
+  padding: 1.5px 8px;
+  border-radius: 8px;
+}
+
+.nc-game-vol-badge.game {
+  color: #5865f2;
+  background: rgba(88, 101, 242, 0.18);
+  border-color: rgba(88, 101, 242, 0.45);
+}
+
+.nc-game-audio-close {
+  background: transparent;
+  border: none;
+  color: #949ba4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.nc-game-audio-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.nc-game-audio-desc {
+  font-size: 11px;
+  color: #949ba4;
+  line-height: 1.3;
+}
+
+.nc-game-audio-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nc-game-audio-slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  outline: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.nc-game-audio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #5865f2;
+  border: 2px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(88, 101, 242, 0.6);
+  transition: transform 0.1s;
+}
+
+.nc-game-audio-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.nc-game-audio-presets-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.nc-preset-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.nc-preset-chip {
+  background: #2b2d31;
+  color: #dbdee1;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nc-preset-chip:hover {
+  background: #35373c;
+  color: #fff;
+}
+
+.nc-preset-chip.active {
+  background: #5865f2;
+  color: #fff;
+  border-color: #5865f2;
+  box-shadow: 0 0 8px rgba(88, 101, 242, 0.4);
+}
+
+.nc-aec-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #2b2d31;
+  color: #949ba4;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nc-aec-toggle-btn.active {
+  background: rgba(88, 101, 242, 0.2);
+  border-color: #5865f2;
+  color: #5865f2;
+  box-shadow: 0 0 8px rgba(88, 101, 242, 0.35);
+}
+
+.nc-aec-toggle-btn:hover {
+  filter: brightness(1.15);
+}
+
+.nc-ico-accent {
+  color: #5865f2;
+}
+
+.nc-muted-ico {
+  color: #949ba4;
+}
+
 .nc-voice-dock {
   display: flex;
   justify-content: center;

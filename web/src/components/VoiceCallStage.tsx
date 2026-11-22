@@ -13,6 +13,10 @@ import {
   Volume2,
   VolumeX,
   Maximize2,
+  Gamepad2,
+  Sliders,
+  Zap,
+  X,
 } from 'lucide-react';
 import type { CallSessionState, Channel, User, VoiceParticipant } from '../types';
 import { nexconn } from '../services/nexconn';
@@ -33,6 +37,8 @@ interface VoiceCallStageProps {
   onToggleScreenShare: () => void;
   onHangup: () => void;
   onInviteUser?: (userId: string) => void;
+  onSetGameAudioVolume?: (vol: number) => void;
+  onSetGameAudioMode?: (enabled: boolean) => void;
 }
 
 interface VoiceTileProps {
@@ -297,10 +303,67 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   onToggleScreenShare,
   onHangup,
   onInviteUser,
+  onSetGameAudioVolume,
+  onSetGameAudioMode,
 }) => {
   const [showInvite, setShowInvite] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
+  const [showVolumeBar, setShowVolumeBar] = useState(false);
+  const autoHideTimerRef = useRef<any>(null);
   const [, setTick] = useState(0);
+
+  const isGameMode = callState.gameAudioMode ?? nexconn.gameAudioMode;
+  const volume = callState.gameAudioVolume ?? nexconn.gameAudioVolume ?? 1.5;
+
+  const triggerVolumeBar = (seconds = 5) => {
+    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    setShowVolumeBar(true);
+    autoHideTimerRef.current = setTimeout(() => {
+      setShowVolumeBar(false);
+    }, seconds * 1000);
+  };
+
+  const resetHideTimer = (seconds = 5) => {
+    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    autoHideTimerRef.current = setTimeout(() => {
+      setShowVolumeBar(false);
+    }, seconds * 1000);
+  };
+
+  const dismissVolumeBar = () => {
+    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    setShowVolumeBar(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    };
+  }, []);
+
+  const prevScreenShareRef = useRef(callState.screenSharing);
+  useEffect(() => {
+    if (!prevScreenShareRef.current && callState.screenSharing) {
+      triggerVolumeBar(5);
+    }
+    prevScreenShareRef.current = callState.screenSharing;
+  }, [callState.screenSharing]);
+
+  const handleSetVolume = (val: number) => {
+    if (onSetGameAudioVolume) {
+      onSetGameAudioVolume(val);
+    } else {
+      nexconn.setGameAudioVolume(val);
+    }
+  };
+
+  const handleToggleGameMode = (enabled: boolean) => {
+    if (onSetGameAudioMode) {
+      onSetGameAudioMode(enabled);
+    } else {
+      nexconn.setGameAudioMode(enabled);
+    }
+  };
 
   // Subscribe to nexconn changes and poll so peer connection states,
   // ICE updates, and track additions immediately update the badge and video tiles
@@ -393,6 +456,21 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Game Audio / AEC Bypass Quick Button */}
+          <button
+            type="button"
+            className={`nc-btn xs ${isGameMode ? 'primary' : 'secondary'}`}
+            onClick={() => {
+              if (showVolumeBar) dismissVolumeBar();
+              else triggerVolumeBar(8);
+            }}
+            title="Game / Stream Audio Boost & AEC Controls"
+            style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            {isGameMode ? <Gamepad2 size={14} /> : <Sliders size={14} />}
+            <span className="desktop-only">{isGameMode ? `Game Audio (${Math.round(volume * 100)}%)` : 'Audio Boost'}</span>
+          </button>
+
           {/* Soundboard Button */}
           <div style={{ position: 'relative' }}>
             <button
@@ -565,14 +643,131 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
         })}
       </div>
 
+      {/* Game / Stream Audio Volume Slider & Presets Bar */}
+      {showVolumeBar && (
+        <div className="nc-game-audio-bar">
+          <div className="nc-game-audio-header">
+            <div className="nc-game-audio-title">
+              {isGameMode ? <Gamepad2 size={16} className="nc-ico-accent" /> : <Volume2 size={16} className="nc-ico-accent" />}
+              <span>{isGameMode ? 'Game / Stream Audio' : 'Voice & Audio Volume'}</span>
+            </div>
+            <div className="nc-game-audio-meta">
+              <span className={`nc-game-vol-badge ${isGameMode ? 'game' : ''}`}>
+                {Math.round(volume * 100)}%
+              </span>
+              <button
+                type="button"
+                className="nc-game-audio-close"
+                onClick={dismissVolumeBar}
+                title="Dismiss volume bar"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+
+          <div className="nc-game-audio-desc">
+            {isGameMode
+              ? 'AEC Bypass active: Amplifies game and stream sound so squad hears clearly even at low system volume.'
+              : 'Adjust microphone and stream audio gain level. (Auto-hides in a few seconds)'}
+          </div>
+
+          <div className="nc-game-audio-slider-row">
+            <VolumeX size={14} className="nc-muted-ico" />
+            <input
+              type="range"
+              min="0"
+              max="2.5"
+              step="0.1"
+              value={volume}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                handleSetVolume(val);
+                resetHideTimer(5);
+              }}
+              className="nc-game-audio-slider"
+              style={{
+                background: `linear-gradient(to right, ${isGameMode ? '#5865F2' : '#57F287'} ${(volume / 2.5) * 100}%, rgba(255,255,255,0.12) ${(volume / 2.5) * 100}%)`,
+              }}
+            />
+            <Volume2 size={14} className="nc-ico-accent" />
+          </div>
+
+          <div className="nc-game-audio-presets-row">
+            <div className="nc-preset-chips">
+              {[0.5, 1.0, 1.5, 2.0, 2.5].map((preset) => {
+                const active = Math.abs(volume - preset) < 0.05;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`nc-preset-chip ${active ? 'active' : ''}`}
+                    onClick={() => {
+                      handleSetVolume(preset);
+                      resetHideTimer(5);
+                    }}
+                  >
+                    {Math.round(preset * 100)}%
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              className={`nc-aec-toggle-btn ${isGameMode ? 'active' : ''}`}
+              onClick={() => {
+                handleToggleGameMode(!isGameMode);
+                resetHideTimer(5);
+              }}
+              title="Toggle WebRTC Hardware Acoustic Echo Cancellation Bypass"
+            >
+              <Zap size={12} />
+              <span>{isGameMode ? 'AEC Bypass ON' : 'AEC Normal'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="nc-voice-dock">
         <button
           type="button"
           className={`nc-dock-btn ${callState.micMuted ? 'off' : ''}`}
           onClick={onToggleMic}
-          title={callState.micMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            triggerVolumeBar(6);
+          }}
+          title={callState.micMuted ? 'Unmute Microphone' : 'Mute Microphone (Right click or hold for Volume Bar)'}
         >
           {callState.micMuted ? <MicOff size={20} /> : <Mic size={20} />}
+        </button>
+
+        <button
+          type="button"
+          className={`nc-dock-btn ${showVolumeBar || isGameMode ? 'active' : ''}`}
+          onClick={() => {
+            if (showVolumeBar) dismissVolumeBar();
+            else triggerVolumeBar(8);
+          }}
+          title="Game / Stream Audio Boost & AEC Controls"
+          style={{ position: 'relative' }}
+        >
+          <Sliders size={20} />
+          {isGameMode && (
+            <span
+              style={{
+                position: 'absolute',
+                top: 7,
+                right: 7,
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: '#5865F2',
+                boxShadow: '0 0 6px #5865F2',
+              }}
+            />
+          )}
         </button>
 
         <button

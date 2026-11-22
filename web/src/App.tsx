@@ -85,6 +85,8 @@ const INITIAL_CALL: CallSessionState = {
   cameraEnabled: false,
   deafened: false,
   screenSharing: false,
+  gameAudioMode: false,
+  gameAudioVolume: 1.5,
 };
 
 function formatTime(ts: number): string {
@@ -1059,11 +1061,26 @@ export function App() {
     try {
       const stream = await nexconn.toggleScreenShare(true);
       const active = !!stream;
-      setCallState((prev) => ({ ...prev, screenSharing: active }));
+      setCallState((prev) => ({
+        ...prev,
+        screenSharing: active,
+        gameAudioMode: active ? true : prev.gameAudioMode,
+        gameAudioVolume: active ? 1.5 : prev.gameAudioVolume,
+      }));
       if (myVoice) await api.updateVoiceState({ streaming: active }).catch(() => {});
     } catch (err: any) {
       window.alert(err?.message || 'Screen sharing is not supported or was canceled on this device.');
     }
+  };
+
+  const setGameAudioVolume = (vol: number) => {
+    nexconn.setGameAudioVolume(vol);
+    setCallState((prev) => ({ ...prev, gameAudioVolume: vol }));
+  };
+
+  const setGameAudioMode = (enabled: boolean) => {
+    nexconn.setGameAudioMode(enabled);
+    setCallState((prev) => ({ ...prev, gameAudioMode: enabled }));
   };
 
   // ---------------------------------------------------------------- Render Guards
@@ -1989,6 +2006,8 @@ export function App() {
                 onToggleScreenShare={toggleScreenShare}
                 onHangup={hangupCall}
                 onInviteUser={(uid) => nexconn.inviteToCall([uid])}
+                onSetGameAudioVolume={setGameAudioVolume}
+                onSetGameAudioMode={setGameAudioMode}
               />
             )}
 
