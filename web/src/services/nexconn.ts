@@ -464,7 +464,7 @@ class NexconnService {
     target: ChannelTarget,
     text: string,
     opts?: {
-      type?: 'text' | 'quickchat' | 'image' | 'file';
+      type?: 'text' | 'quickchat' | 'image' | 'file' | 'gif' | 'sticker';
       replyTo?: ReplyReference | null;
       attachments?: MessageAttachment[];
       metadata?: MessageMetadata | null;

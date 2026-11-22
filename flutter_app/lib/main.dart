@@ -12,6 +12,7 @@ import 'services/media_stream_service.dart';
 import 'widgets/squad_and_quickchat.dart';
 import 'widgets/live_stream_stage_view.dart';
 import 'widgets/voice_huddle_view.dart';
+import 'widgets/media_picker_sheet.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1365,7 +1366,57 @@ class _NexcordHomeState extends State<NexcordHome> {
                               ],
                             ),
                             const SizedBox(height: 2),
-                            Text(m.text, style: const TextStyle(fontSize: 14.5, color: Color(0xFFDBDEE1))),
+                            if (m.type == 'gif' || (m.text.startsWith('http') && m.text.contains('.gif')))
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, bottom: 2),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    constraints: const BoxConstraints(maxWidth: 240, maxHeight: 180),
+                                    color: const Color(0xFF1E1F22),
+                                    child: Image.network(
+                                      (m.metadata?['url'] as String?) ?? m.text,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.broken_image, size: 18, color: Colors.grey),
+                                            SizedBox(width: 6),
+                                            Text('GIF unavailable', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else if (m.type == 'sticker')
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, bottom: 2),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    width: 110,
+                                    height: 110,
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0x1F5865F2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Image.network(
+                                      (m.metadata?['url'] as String?) ?? m.text,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => const Center(
+                                        child: Icon(Icons.broken_image, color: Colors.grey),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else
+                              Text(m.text, style: const TextStyle(fontSize: 14.5, color: Color(0xFFDBDEE1))),
                             if (m.reactions.isNotEmpty) ...[
                               const SizedBox(height: 5),
                               Wrap(
@@ -1426,6 +1477,16 @@ class _NexcordHomeState extends State<NexcordHome> {
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
           child: Row(
             children: [
+              IconButton(
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFF383A40),
+                  padding: const EdgeInsets.all(8),
+                ),
+                icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFFB5BAC1), size: 22),
+                tooltip: 'Emojis, GIFs & Stickers',
+                onPressed: _openMediaPicker,
+              ),
+              const SizedBox(width: 6),
               Expanded(
                 child: TextField(
                   controller: _msgCtrl,
@@ -1460,6 +1521,56 @@ class _NexcordHomeState extends State<NexcordHome> {
     );
   }
 
+  void _openMediaPicker() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF2B2D31),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return FractionallySizedBox(
+          heightFactor: 0.70,
+          child: MediaPickerSheet(
+            onSelectEmoji: (emoji) {
+              Navigator.pop(ctx);
+              setState(() {
+                _msgCtrl.text = '${_msgCtrl.text}$emoji';
+                _msgCtrl.selection = TextSelection.fromPosition(
+                  TextPosition(offset: _msgCtrl.text.length),
+                );
+              });
+            },
+            onSelectGif: (gif) {
+              Navigator.pop(ctx);
+              _sendText(
+                gif.url,
+                type: 'gif',
+                metadata: {
+                  'title': gif.title,
+                  'url': gif.url,
+                },
+              );
+            },
+            onSelectSticker: (sticker) {
+              Navigator.pop(ctx);
+              _sendText(
+                sticker.name,
+                type: 'sticker',
+                metadata: {
+                  'name': sticker.name,
+                  'url': sticker.url,
+                  'pack': sticker.pack,
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   void _showMessageActions(ChatMessage m) {
     showModalBottomSheet<void>(
       context: context,
@@ -1468,21 +1579,36 @@ class _NexcordHomeState extends State<NexcordHome> {
         child: Wrap(
           children: [
             Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: ['🔥', '❤️', '⚡', '👑', '👍', '😂'].map((em) {
-                  return InkWell(
-                    onTap: () async {
-                      Navigator.pop(ctx);
-                      await _api.reactMessage(_targetKey, m.id, em);
-                      await _loadMessages();
-                    },
-                    child: Text(em, style: const TextStyle(fontSize: 24)),
-                  );
-                }).toList(),
+              padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    '🔥', '❤️', '⚡', '👑', '👍', '😂', '🎉', '💀',
+                    '👀', '💯', '👏', '✨', '💎', '🏆', '🎮', '⚔️',
+                    '🥺', '😭', '😎', '🥳', '🙌', '💪', '🚀', '🎯'
+                  ].map((em) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          await _api.reactMessage(_targetKey, m.id, em);
+                          await _loadMessages();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: Text(em, style: const TextStyle(fontSize: 25)),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
+            const Divider(color: Color(0xFF383A40), height: 1),
             ListTile(
               leading: const Icon(Icons.reply_rounded),
               title: const Text('Reply'),

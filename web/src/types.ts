@@ -126,6 +126,10 @@ export interface MessageMetadata {
   category?: string;
   badge?: string;
   coords?: { x: number; y: number; label: string };
+  url?: string;
+  title?: string;
+  name?: string;
+  pack?: string;
   [key: string]: unknown;
 }
 
@@ -135,7 +139,7 @@ export interface ChatMessage {
   targetKey: string;
   senderId: string;
   text: string;
-  type: 'text' | 'quickchat' | 'image' | 'file' | 'system';
+  type: 'text' | 'quickchat' | 'image' | 'file' | 'system' | 'gif' | 'sticker';
   replyTo?: ReplyReference | null;
   attachments?: MessageAttachment[];
   metadata?: MessageMetadata | null;

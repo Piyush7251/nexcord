@@ -71,9 +71,15 @@ import {
   UserSettingsModal,
 } from './components/Modals';
 import { AdminPanel } from './components/AdminPanel';
+import { MediaPickerDrawer } from './components/MediaPickerDrawer';
+import type { GifItem, StickerItem } from './data/mediaLibrary';
 import './App.css';
 
-const QUICK_EMOJIS = ['🔥', '❤️', '😂', '⚡', '👑', '👍', '🎯', '🚀'];
+const QUICK_EMOJIS = [
+  '🔥', '❤️', '😂', '⚡', '👑', '👍', '🎯', '🚀',
+  '🎉', '💀', '👀', '💯', '👏', '✨', '💎', '🏆',
+  '🎮', '⚔️', '🥺', '😭', '😎', '🥳', '🙌', '💪'
+];
 
 const INITIAL_CALL: CallSessionState = {
   status: 'idle',
@@ -825,6 +831,38 @@ export function App() {
     });
   };
 
+  const handleSendGif = async (gif: GifItem) => {
+    if (!activeTarget) return;
+    setShowComposerEmoji(false);
+    const msg = await nexconn.sendTextMessage(activeTarget, gif.url, {
+      type: 'gif',
+      metadata: { title: gif.title, url: gif.url },
+    });
+    setMessagesByKey((prev) => {
+      const cur = prev[activeTargetKey] || [];
+      if (cur.some((m) => m.id === msg.id)) return prev;
+      return { ...prev, [activeTargetKey]: [...cur, msg] };
+    });
+  };
+
+  const handleSendSticker = async (sticker: StickerItem) => {
+    if (!activeTarget) return;
+    setShowComposerEmoji(false);
+    const msg = await nexconn.sendTextMessage(activeTarget, sticker.name, {
+      type: 'sticker',
+      metadata: { name: sticker.name, url: sticker.url, pack: sticker.pack },
+    });
+    setMessagesByKey((prev) => {
+      const cur = prev[activeTargetKey] || [];
+      if (cur.some((m) => m.id === msg.id)) return prev;
+      return { ...prev, [activeTargetKey]: [...cur, msg] };
+    });
+  };
+
+  const handleSelectEmoji = (emoji: string) => {
+    setComposerText((prev) => prev + emoji);
+  };
+
   const handleSendQuickChat = async (preset: QuickChatPreset, zone?: string) => {
     if (!activeTarget) return;
     const text = zone ? `${preset.text} [${zone}]` : preset.text;
@@ -838,7 +876,6 @@ export function App() {
       return { ...prev, [activeTargetKey]: [...cur, msg] };
     });
   };
-
 
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2108,6 +2145,14 @@ export function App() {
                               />
                               <div className="nc-edit-hint">Enter to save • Esc to cancel</div>
                             </div>
+                          ) : m.type === 'gif' || (Boolean(m.text?.startsWith('http')) && Boolean(m.text?.includes('.gif'))) ? (
+                            <div className="nc-msg-gif-card">
+                              <img src={m.metadata?.url || m.text} alt={m.metadata?.title || 'GIF'} className="nc-msg-gif-img" loading="lazy" />
+                            </div>
+                          ) : m.type === 'sticker' ? (
+                            <div className="nc-msg-sticker-card">
+                              <img src={m.metadata?.url || m.text} alt={m.metadata?.name || 'Sticker'} className="nc-msg-sticker-img" loading="lazy" />
+                            </div>
                           ) : (
                             <div className="nc-msg-text">
                               {renderMessageText(m.text)}
@@ -2301,28 +2346,19 @@ export function App() {
                   <div className="nc-composer-right">
                     <button
                       type="button"
-                      className="nc-icon-btn"
+                      className={`nc-icon-btn ${showComposerEmoji ? 'active' : ''}`}
                       onClick={() => setShowComposerEmoji((v) => !v)}
-                      title="Emoji"
+                      title="Emojis, GIFs & Stickers"
                     >
                       <Smile size={20} />
                     </button>
-                    {showComposerEmoji && (
-                      <div className="nc-emoji-pop composer">
-                        {QUICK_EMOJIS.map((em) => (
-                          <button
-                            key={em}
-                            type="button"
-                            onClick={() => {
-                              setComposerText((p) => p + em);
-                              setShowComposerEmoji(false);
-                            }}
-                          >
-                            {em}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <MediaPickerDrawer
+                      isOpen={showComposerEmoji}
+                      onClose={() => setShowComposerEmoji(false)}
+                      onSelectEmoji={handleSelectEmoji}
+                      onSelectGif={handleSendGif}
+                      onSelectSticker={handleSendSticker}
+                    />
                     <button type="submit" className="nc-send-btn" disabled={!composerText.trim()}>
                       <Send size={17} />
                     </button>
