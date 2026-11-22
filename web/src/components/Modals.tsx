@@ -148,33 +148,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
       return;
     }
 
-    // Try Google Firebase Phone Auth first (10,000 FREE SMS/mo, zero DLT)
+    // Google Firebase Phone Auth (10,000 FREE SMS/mo, zero DLT)
     try {
       await sendFirebasePhoneOtp(fullPhone, 'nc-recaptcha-container');
       setUsedFirebase(true);
       setMobileStep('otp');
       setCooldown(30);
     } catch (fbErr: any) {
-      console.warn('[Firebase Auth] Notice, trying server SMS gateway fallback:', fbErr?.message);
-      try {
-        if (serverUrl.trim()) setApiBase(serverUrl.trim());
-        const res = await api.sendOtp(fullPhone, otpChannel);
-        setUsedFirebase(false);
-        setMobileStep('otp');
-        const cd = res.cooldownSeconds ?? 30;
-        setCooldown(cd);
-        if (res.devOtp) {
-          setDevOtpPreview(res.devOtp);
-        }
-      } catch (e: any) {
-        const errorMsg = fbErr?.message?.includes('billing') || fbErr?.message?.includes('quota')
-          ? fbErr.message
-          : (e?.message || fbErr?.message || 'Failed to send verification SMS');
-        setErr(errorMsg);
-        if (e?.cooldownSeconds && e.cooldownSeconds > 0) {
-          setCooldown(e.cooldownSeconds);
-        }
+      console.warn('[Firebase Auth] Error:', fbErr);
+      const code = fbErr?.code || '';
+      let msg = fbErr?.message || 'Failed to send verification SMS via Google Firebase.';
+      if (code === 'auth/unauthorized-domain') {
+        msg = 'Domain not authorized. Please add nexcord-a85i.onrender.com to Authorized Domains in Firebase Console.';
+      } else if (code === 'auth/invalid-phone-number') {
+        msg = 'Invalid phone number format for Google verification.';
+      } else if (code === 'auth/quota-exceeded' || msg.includes('quota') || msg.includes('billing')) {
+        msg = 'SMS quota reached. Please add a billing account or test number in Firebase Console.';
       }
+      setErr(msg);
     } finally {
       setBusy(false);
     }
