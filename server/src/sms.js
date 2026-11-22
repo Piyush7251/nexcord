@@ -214,17 +214,40 @@ export async function sendSms({ phone, code }) {
     }
 
     try {
-      // Fast2SMS OTP SMS route
-      const smsUrl = `https://www.fast2sms.com/dev/bulkV2?authorization=${encodeURIComponent(fast2SmsKey)}&route=otp&variables_values=${encodeURIComponent(code)}&flash=0&numbers=${encodeURIComponent(indianMobile)}`;
-      const res = await fetch(smsUrl, { method: 'GET' });
+      // 1. Primary: Fast2SMS Quick SMS route (transactional SMS, does not require website verification)
+      const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+        method: 'POST',
+        headers: {
+          authorization: fast2SmsKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          route: 'q',
+          message: `Your Nexcord verification code is ${code}. Valid for 5 minutes. Do not share this code with anyone.`,
+          flash: 0,
+          numbers: indianMobile,
+        }),
+      });
       const data = await res.json();
-      if (data && (data.return || data.status === true || (Array.isArray(data.message) && data.message[0]?.includes('SMS sent')))) {
-        addLog('success', 'FAST2SMS', `SMS OTP dispatched to ${indianMobile} (Fast2SMS OTP Route)`);
+      if (data && (data.return === true || data.status === true || (Array.isArray(data.message) && data.message[0]?.includes('SMS sent')))) {
+        addLog('success', 'FAST2SMS', `SMS OTP dispatched to ${indianMobile} (Fast2SMS Quick SMS Route)`);
         results.deliveredToCarrier = true;
         results.details = `Delivered via SMS to ${phone}`;
         return results;
       }
-      const errMsg = Array.isArray(data?.message) ? data.message.join(', ') : (data?.message || 'Fast2SMS SMS dispatch error');
+
+      // 2. Secondary fallback: GET bulkV2 Quick route
+      const getUrl = `https://www.fast2sms.com/dev/bulkV2?authorization=${encodeURIComponent(fast2SmsKey)}&route=q&message=${encodeURIComponent(`Your Nexcord verification code is ${code}. Valid for 5 minutes.`)}&flash=0&numbers=${encodeURIComponent(indianMobile)}`;
+      const getRes = await fetch(getUrl, { method: 'GET' });
+      const getData = await getRes.json();
+      if (getData && (getData.return === true || getData.status === true || (Array.isArray(getData.message) && getData.message[0]?.includes('SMS sent')))) {
+        addLog('success', 'FAST2SMS', `SMS OTP dispatched to ${indianMobile} (Fast2SMS Quick GET Route)`);
+        results.deliveredToCarrier = true;
+        results.details = `Delivered via SMS to ${phone}`;
+        return results;
+      }
+
+      const errMsg = Array.isArray(data?.message) ? data.message.join(', ') : (data?.message || getData?.message || 'Fast2SMS SMS dispatch error');
       addLog('warn', 'FAST2SMS', `SMS send rejected: ${errMsg}`);
       results.details = errMsg;
     } catch (err) {
