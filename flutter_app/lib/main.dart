@@ -77,7 +77,6 @@ class _NexcordHomeState extends State<NexcordHome> {
   List<String> _friends = [];
   List<String> _incoming = [];
   List<String> _dms = [];
-  Map<String, SquadLobbyState> _squadState = {};
   NexconnConfig _config = NexconnConfig();
 
   // Navigation state
@@ -86,7 +85,6 @@ class _NexcordHomeState extends State<NexcordHome> {
   String _activeServerId = '';
   String _activeChannelId = '';
   String _activeDmUserId = '';
-  bool _showSquadBannerOverride = false;
 
   // Chat state
   List<ChatMessage> _messages = [];
@@ -213,7 +211,6 @@ class _NexcordHomeState extends State<NexcordHome> {
         _friends = res.friends;
         _incoming = res.incoming;
         _dms = res.dms;
-        _squadState = res.squadState;
         _voiceServerId = res.voiceServerId;
         _voiceChannelId = res.voiceChannelId;
 
@@ -697,15 +694,6 @@ class _NexcordHomeState extends State<NexcordHome> {
               icon: const Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF5865F2), size: 21),
               tooltip: 'Invite & Share Server',
               onPressed: () => _showShareServerSheet(context, srv),
-            ),
-          if (_section == 'chat' && !_homeMode && ch != null && ch.type == 'text')
-            IconButton(
-              icon: Icon(
-                Icons.sports_esports,
-                color: (ch.name == 'squad-chat-room' || _showSquadBannerOverride) ? const Color(0xFF57F287) : null,
-              ),
-              tooltip: 'Toggle Squad Lobby',
-              onPressed: () => setState(() => _showSquadBannerOverride = !_showSquadBannerOverride),
             ),
           if (_section == 'chat' && _homeMode && _activeDmUserId.isNotEmpty)
             IconButton(
@@ -1307,31 +1295,8 @@ class _NexcordHomeState extends State<NexcordHome> {
     }
 
     // Standard Text / Squad Chat / DM View
-    final showSquad = !_homeMode && srv != null && ch != null && (ch.name == 'squad-chat-room' || _showSquadBannerOverride);
     return Column(
       children: [
-        if (showSquad)
-          SquadLobbyBannerWidget(
-            server: srv,
-            me: _me!,
-            users: _users,
-            squadState: _squadState['${srv.id}:${ch.id}'],
-            onUpdateSquad: ({game, map, ready}) async {
-              final next = await _api.updateSquadState(srv.id, ch.id, game: game, map: map, ready: ready);
-              setState(() => _squadState['${srv.id}:${ch.id}'] = next);
-            },
-            onMapPing: (x, y, label) {
-              _sendText(
-                '📍 Tactical Ping at $label ($x, $y) — Eyes here!',
-                type: 'quickchat',
-                metadata: {'badge': 'MAP PING', 'category': 'tactical'},
-              );
-            },
-            onJoinSquadVoice: () {
-              final vc = srv.channels.where((c) => c.type == 'voice').firstOrNull;
-              if (vc != null) _selectChannel(srv, vc);
-            },
-          ),
         Expanded(
           child: ListView.builder(
             controller: _chatScroll,
