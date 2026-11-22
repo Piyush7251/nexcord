@@ -3729,12 +3729,17 @@ class _AuthScreenState extends State<_AuthScreen> {
                                     color: _mode == 'otp' ? Colors.white : const Color(0xFF949BA4),
                                   ),
                                   const SizedBox(width: 6),
-                                  Text(
-                                    'Mobile OTP',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: _mode == 'otp' ? Colors.white : const Color(0xFF949BA4),
+                                  Flexible(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        'Mobile OTP',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: _mode == 'otp' ? Colors.white : const Color(0xFF949BA4),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -3763,12 +3768,17 @@ class _AuthScreenState extends State<_AuthScreen> {
                                     color: _mode == 'pass' ? Colors.white : const Color(0xFF949BA4),
                                   ),
                                   const SizedBox(width: 6),
-                                  Text(
-                                    'Password / Demo',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: _mode == 'pass' ? Colors.white : const Color(0xFF949BA4),
+                                  Flexible(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        'Password / Demo',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: _mode == 'pass' ? Colors.white : const Color(0xFF949BA4),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -3911,7 +3921,7 @@ class _AuthScreenState extends State<_AuthScreen> {
                               onTap: () => setState(() => _otpChannel = 'whatsapp'),
                               borderRadius: BorderRadius.circular(8),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
                                 decoration: BoxDecoration(
                                   color: _otpChannel == 'whatsapp' ? const Color(0x2823A55A) : const Color(0xFF1E1F22),
                                   borderRadius: BorderRadius.circular(8),
@@ -3923,14 +3933,20 @@ class _AuthScreenState extends State<_AuthScreen> {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const Text('💬', style: TextStyle(fontSize: 16)),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'WhatsApp',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: _otpChannel == 'whatsapp' ? Colors.white : const Color(0xFFB5BAC1),
+                                    const Text('💬', style: TextStyle(fontSize: 15)),
+                                    const SizedBox(width: 5),
+                                    Flexible(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          'WhatsApp',
+                                          maxLines: 1,
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: _otpChannel == 'whatsapp' ? Colors.white : const Color(0xFFB5BAC1),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -3944,7 +3960,7 @@ class _AuthScreenState extends State<_AuthScreen> {
                               onTap: () => setState(() => _otpChannel = 'sms'),
                               borderRadius: BorderRadius.circular(8),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
                                 decoration: BoxDecoration(
                                   color: _otpChannel == 'sms' ? const Color(0x285865F2) : const Color(0xFF1E1F22),
                                   borderRadius: BorderRadius.circular(8),
@@ -3956,14 +3972,20 @@ class _AuthScreenState extends State<_AuthScreen> {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const Text('✉️', style: TextStyle(fontSize: 16)),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'SMS Message',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: _otpChannel == 'sms' ? Colors.white : const Color(0xFFB5BAC1),
+                                    const Text('✉️', style: TextStyle(fontSize: 15)),
+                                    const SizedBox(width: 5),
+                                    Flexible(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          'SMS Message',
+                                          maxLines: 1,
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: _otpChannel == 'sms' ? Colors.white : const Color(0xFFB5BAC1),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],
