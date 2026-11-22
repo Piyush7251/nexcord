@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../models/models.dart';
 import '../services/media_stream_service.dart';
 
-class VoiceHuddleView extends StatelessWidget {
+class VoiceHuddleView extends StatefulWidget {
   final String channelName;
   final String? callId;
   final NexcordUser me;
@@ -38,10 +40,78 @@ class VoiceHuddleView extends StatelessWidget {
   });
 
   @override
+  State<VoiceHuddleView> createState() => _VoiceHuddleViewState();
+}
+
+class _VoiceHuddleViewState extends State<VoiceHuddleView> {
+  bool _showVolumeBar = false;
+  Timer? _autoHideTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.screenSharing) {
+      _triggerVolumeBar(seconds: 4);
+    }
+  }
+
+  @override
+  void didUpdateWidget(VoiceHuddleView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.screenSharing && widget.screenSharing) {
+      // Screen sharing just started: briefly show volume bar then auto-hide
+      _triggerVolumeBar(seconds: 4);
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoHideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _triggerVolumeBar({int seconds = 5}) {
+    _autoHideTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _showVolumeBar = true;
+      });
+    }
+    _autoHideTimer = Timer(Duration(seconds: seconds), () {
+      if (mounted) {
+        setState(() {
+          _showVolumeBar = false;
+        });
+      }
+    });
+  }
+
+  void _resetHideTimer({int seconds = 5}) {
+    if (!_showVolumeBar) return;
+    _autoHideTimer?.cancel();
+    _autoHideTimer = Timer(Duration(seconds: seconds), () {
+      if (mounted) {
+        setState(() {
+          _showVolumeBar = false;
+        });
+      }
+    });
+  }
+
+  void _dismissVolumeBar() {
+    _autoHideTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _showVolumeBar = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final media = MediaStreamService.instance;
-    final ids = <String>{me.id, ...participants.map((p) => p.userId)}.toList();
-    final remoteIds = ids.where((id) => id != me.id).toList();
+    final ids = <String>{widget.me.id, ...widget.participants.map((p) => p.userId)}.toList();
+    final remoteIds = ids.where((id) => id != widget.me.id).toList();
     final connectedRemotes = media.connectedPeerCount(remoteIds);
     final totalCount = ids.length;
     final connectedCount = 1 + connectedRemotes;
@@ -82,7 +152,7 @@ class VoiceHuddleView extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'VOICE CONNECTED / #$channelName',
+                      'VOICE CONNECTED / #${widget.channelName}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF57F287)),
@@ -110,7 +180,7 @@ class VoiceHuddleView extends StatelessWidget {
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    onPressed: onHangup,
+                    onPressed: widget.onHangup,
                     icon: const Icon(Icons.call_end, size: 13),
                     label: const Text('Leave', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                   ),
@@ -130,11 +200,11 @@ class VoiceHuddleView extends StatelessWidget {
                   ),
                   itemBuilder: (_, i) {
                     final uid = ids[i];
-                    final isMe = uid == me.id;
-                    final u = isMe ? me : users[uid];
-                    final vp = participants.where((p) => p.userId == uid).firstOrNull;
-                    final muted = isMe ? micMuted : (vp?.muted ?? false);
-                    final deaf = isMe ? deafened : (vp?.deafened ?? false);
+                    final isMe = uid == widget.me.id;
+                    final u = isMe ? widget.me : widget.users[uid];
+                    final vp = widget.participants.where((p) => p.userId == uid).firstOrNull;
+                    final muted = isMe ? widget.micMuted : (vp?.muted ?? false);
+                    final deaf = isMe ? widget.deafened : (vp?.deafened ?? false);
 
                     final showLiveCamera = isMe && isCamActive && media.cameraRenderer != null;
                     final showLiveScreen = isMe && isSharing && media.screenRenderer != null;
@@ -201,11 +271,11 @@ class VoiceHuddleView extends StatelessWidget {
                                       style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                                     ),
                                   ),
-                                  if (isMe && cameraOn && !showLiveCamera) ...[
+                                  if (isMe && widget.cameraOn && !showLiveCamera) ...[
                                     const SizedBox(height: 6),
                                     const Text('Starting Camera...', style: TextStyle(fontSize: 10.5, color: Color(0xFF57F287))),
                                   ],
-                                  if (isMe && screenSharing && !showLiveScreen) ...[
+                                  if (isMe && widget.screenSharing && !showLiveScreen) ...[
                                     const SizedBox(height: 6),
                                     const Text('Starting Screen...', style: TextStyle(fontSize: 10.5, color: Color(0xFF5865F2))),
                                   ],
@@ -295,28 +365,60 @@ class VoiceHuddleView extends StatelessWidget {
               ),
               const SizedBox(height: 6),
 
-              // Game / Stream Audio Volume Boost Bar
-              _buildGameAudioVolumeBar(context, media),
-              const SizedBox(height: 8),
+              // Game / Stream Audio Volume Boost Bar (Appears on hold mic, auto-hides after a few seconds)
+              AnimatedSize(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+                child: _showVolumeBar
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildGameAudioVolumeBar(context, media),
+                          const SizedBox(height: 8),
+                        ],
+                      )
+                    : const SizedBox.shrink(),
+              ),
 
               // Control Dock
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _dockBtn(micMuted ? Icons.mic_off : Icons.mic, !micMuted, onToggleMic),
+                  _dockBtn(
+                    icon: widget.micMuted ? Icons.mic_off : Icons.mic,
+                    active: !widget.micMuted,
+                    onTap: widget.onToggleMic,
+                    onLongPress: () {
+                      HapticFeedback.mediumImpact().catchError((_) {});
+                      _triggerVolumeBar(seconds: 6);
+                    },
+                    tooltip: 'Tap: Mute/Unmute | Hold: Volume Bar',
+                  ),
                   const SizedBox(width: 10),
-                  _dockBtn(deafened ? Icons.headset_off : Icons.headphones, !deafened, onToggleDeafen),
+                  _dockBtn(
+                    icon: widget.deafened ? Icons.headset_off : Icons.headphones,
+                    active: !widget.deafened,
+                    onTap: widget.onToggleDeafen,
+                  ),
                   const SizedBox(width: 10),
-                  _dockBtn(isCamActive ? Icons.videocam : Icons.videocam_off, isCamActive, onToggleCamera),
+                  _dockBtn(
+                    icon: isCamActive ? Icons.videocam : Icons.videocam_off,
+                    active: isCamActive,
+                    onTap: widget.onToggleCamera,
+                  ),
                   const SizedBox(width: 10),
-                  _dockBtn(isSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded, isSharing, onToggleScreenShare),
+                  _dockBtn(
+                    icon: isSharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
+                    active: isSharing,
+                    onTap: widget.onToggleScreenShare,
+                  ),
                   const SizedBox(width: 10),
                   IconButton(
                     style: IconButton.styleFrom(
                       backgroundColor: const Color(0xFFF23F43),
                       padding: const EdgeInsets.all(12),
                     ),
-                    onPressed: onHangup,
+                    onPressed: widget.onHangup,
                     icon: const Icon(Icons.call_end, color: Colors.white),
                   ),
                 ],
@@ -374,13 +476,22 @@ class VoiceHuddleView extends StatelessWidget {
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: accentColor),
                 ),
               ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: _dismissVolumeBar,
+                borderRadius: BorderRadius.circular(12),
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(Icons.close, size: 16, color: Color(0xFF949BA4)),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 2),
           Text(
             isGameMode
                 ? 'Amplifies phone game sound so squad hears clearly even at low phone volume.'
-                : 'Adjust microphone and stream audio gain level.',
+                : 'Adjust microphone and stream audio gain level. (Auto-hides in a few seconds)',
             style: const TextStyle(fontSize: 9.5, color: Color(0xFF949BA4)),
           ),
           Row(
@@ -403,6 +514,7 @@ class VoiceHuddleView extends StatelessWidget {
                     divisions: 25,
                     onChanged: (val) {
                       media.setGameAudioVolume(val);
+                      _resetHideTimer(seconds: 5);
                     },
                   ),
                 ),
@@ -419,7 +531,10 @@ class VoiceHuddleView extends StatelessWidget {
               _presetChip('200%', 2.0, vol, media),
               _presetChip('250%', 2.5, vol, media),
               InkWell(
-                onTap: () => media.setGameAudioMode(!isGameMode),
+                onTap: () {
+                  media.setGameAudioMode(!isGameMode);
+                  _resetHideTimer(seconds: 5);
+                },
                 borderRadius: BorderRadius.circular(6),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
@@ -464,7 +579,10 @@ class VoiceHuddleView extends StatelessWidget {
   Widget _presetChip(String label, double targetVal, double currentVal, MediaStreamService media) {
     final isSelected = (currentVal - targetVal).abs() < 0.05;
     return InkWell(
-      onTap: () => media.setGameAudioVolume(targetVal),
+      onTap: () {
+        media.setGameAudioVolume(targetVal);
+        _resetHideTimer(seconds: 5);
+      },
       borderRadius: BorderRadius.circular(5),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -487,16 +605,38 @@ class VoiceHuddleView extends StatelessWidget {
     );
   }
 
-  Widget _dockBtn(IconData icon, bool active, VoidCallback onTap) {
-    return IconButton(
-      style: IconButton.styleFrom(
-        backgroundColor: active ? const Color(0xFF35373C) : const Color(0xFF1E1F22),
-        foregroundColor: active ? Colors.white : const Color(0xFF949BA4),
-        padding: const EdgeInsets.all(12),
-        side: active ? const BorderSide(color: Color(0xFF57F287), width: 1.5) : BorderSide.none,
+  Widget _dockBtn({
+    required IconData icon,
+    required bool active,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+    String? tooltip,
+  }) {
+    final btn = Material(
+      color: active ? const Color(0xFF35373C) : const Color(0xFF1E1F22),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: active ? Border.all(color: const Color(0xFF57F287), width: 1.5) : null,
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: active ? Colors.white : const Color(0xFF949BA4),
+          ),
+        ),
       ),
-      onPressed: onTap,
-      icon: Icon(icon, size: 20),
     );
+
+    if (tooltip != null && tooltip.isNotEmpty) {
+      return Tooltip(message: tooltip, child: btn);
+    }
+    return btn;
   }
 }
