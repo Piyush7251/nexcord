@@ -157,6 +157,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ phone, otp, displayName }),
     }),
+  firebaseLogin: (payload: { phone: string; idToken: string; displayName?: string }) =>
+    req<{ session: string; user: User; nexconnToken: string }>('/api/auth/firebase-login', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   sendWebRtcSignal: (to: string, signal: any, callId?: string) =>
     req<{ ok: boolean }>('/api/webrtc/signal', {
       method: 'POST',

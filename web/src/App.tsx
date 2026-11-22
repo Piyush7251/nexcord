@@ -789,6 +789,13 @@ export function App() {
     await bootstrapSession(res.nexconnToken);
   };
 
+  const handleFirebaseLogin = async (phone: string, idToken: string, displayName?: string) => {
+    const res = await api.firebaseLogin({ phone, idToken, displayName });
+    setSessionToken(res.session);
+    setMe(res.user);
+    await bootstrapSession(res.nexconnToken);
+  };
+
   const handleDemoLogin = async (displayName?: string) => {
     const res = await api.demoLogin(displayName);
     setSessionToken(res.session);
@@ -1161,6 +1168,7 @@ export function App() {
         onRegister={handleRegister}
         onDemoLogin={handleDemoLogin}
         onVerifyOtp={handleVerifyOtp}
+        onFirebaseLogin={handleFirebaseLogin}
       />
     );
   }

@@ -38,6 +38,7 @@ import type {
 import type { SdkConnectionMode } from '../services/nexconn';
 import { api, getApiBase, setApiBase } from '../services/api';
 import { Avatar } from './Avatar';
+import { sendFirebasePhoneOtp, verifyFirebasePhoneOtp } from '../services/firebaseAuth';
 
 const COLORS = ['#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245', '#F47B67', '#3BA55C', '#FAA61A', '#9B84EE', '#1ABC9C'];
 
@@ -47,6 +48,7 @@ interface AuthScreenProps {
   onRegister: (username: string, password: string, displayName: string) => Promise<void>;
   onDemoLogin: (displayName?: string) => Promise<void>;
   onVerifyOtp: (phone: string, otp: string, displayName?: string) => Promise<void>;
+  onFirebaseLogin?: (phone: string, idToken: string, displayName?: string) => Promise<void>;
 }
 
 const POPULAR_COUNTRY_CODES = [
@@ -72,12 +74,13 @@ const POPULAR_COUNTRY_CODES = [
   { code: '+34', name: 'Spain', flag: '🇪🇸' },
 ];
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onDemoLogin, onVerifyOtp }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onDemoLogin, onVerifyOtp, onFirebaseLogin }) => {
   const [authMethod, setAuthMethod] = useState<'mobile' | 'password'>('mobile');
   const [mobileStep, setMobileStep] = useState<'phone' | 'otp'>('phone');
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneDigits, setPhoneDigits] = useState('');
   const otpChannel = 'sms';
+  const [usedFirebase, setUsedFirebase] = useState(false);
   const [devOtpPreview, setDevOtpPreview] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -128,19 +131,49 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
       }
     }
     setBusy(true);
-    try {
-      if (serverUrl.trim()) setApiBase(serverUrl.trim());
-      const res = await api.sendOtp(fullPhone, otpChannel);
-      setMobileStep('otp');
-      const cd = res.cooldownSeconds ?? 30;
-      setCooldown(cd);
-      if (res.devOtp) {
-        setDevOtpPreview(res.devOtp);
+
+    if (isAdmin) {
+      try {
+        if (serverUrl.trim()) setApiBase(serverUrl.trim());
+        const res = await api.sendOtp(fullPhone, otpChannel);
+        setUsedFirebase(false);
+        setMobileStep('otp');
+        setCooldown(res.cooldownSeconds ?? 30);
+        if (res.devOtp) setDevOtpPreview(res.devOtp);
+      } catch (err: any) {
+        setErr(err?.message || 'Admin login initialization failed');
+      } finally {
+        setBusy(false);
       }
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to send verification SMS');
-      if (e?.cooldownSeconds && e.cooldownSeconds > 0) {
-        setCooldown(e.cooldownSeconds);
+      return;
+    }
+
+    // Try Google Firebase Phone Auth first (10,000 FREE SMS/mo, zero DLT)
+    try {
+      await sendFirebasePhoneOtp(fullPhone, 'nc-recaptcha-container');
+      setUsedFirebase(true);
+      setMobileStep('otp');
+      setCooldown(30);
+    } catch (fbErr: any) {
+      console.warn('[Firebase Auth] Notice, trying server SMS gateway fallback:', fbErr?.message);
+      try {
+        if (serverUrl.trim()) setApiBase(serverUrl.trim());
+        const res = await api.sendOtp(fullPhone, otpChannel);
+        setUsedFirebase(false);
+        setMobileStep('otp');
+        const cd = res.cooldownSeconds ?? 30;
+        setCooldown(cd);
+        if (res.devOtp) {
+          setDevOtpPreview(res.devOtp);
+        }
+      } catch (e: any) {
+        const errorMsg = fbErr?.message?.includes('billing') || fbErr?.message?.includes('quota')
+          ? fbErr.message
+          : (e?.message || fbErr?.message || 'Failed to send verification SMS');
+        setErr(errorMsg);
+        if (e?.cooldownSeconds && e.cooldownSeconds > 0) {
+          setCooldown(e.cooldownSeconds);
+        }
       }
     } finally {
       setBusy(false);
@@ -158,7 +191,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
     setBusy(true);
     try {
       if (serverUrl.trim()) setApiBase(serverUrl.trim());
-      await onVerifyOtp(fullPhone, cleanOtp, displayName.trim() || undefined);
+      if (usedFirebase && onFirebaseLogin) {
+        try {
+          const { idToken } = await verifyFirebasePhoneOtp(cleanOtp);
+          await onFirebaseLogin(fullPhone, idToken, displayName.trim() || undefined);
+          return;
+        } catch (fbErr: any) {
+          console.warn('[Firebase] Verification fallback to server:', fbErr);
+          await onVerifyOtp(fullPhone, cleanOtp, displayName.trim() || undefined);
+        }
+      } else {
+        await onVerifyOtp(fullPhone, cleanOtp, displayName.trim() || undefined);
+      }
     } catch (e: any) {
       setErr(e?.message || 'Verification failed. Please check the code.');
     } finally {
@@ -331,6 +375,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
                   <Phone size={15} />
                   <span>{busy ? 'Sending OTP...' : 'Send SMS Verification Code'}</span>
                 </button>
+                <div id="nc-recaptcha-container"></div>
               </form>
             ) : (
               <form onSubmit={handleVerify} className="nc-auth-form">

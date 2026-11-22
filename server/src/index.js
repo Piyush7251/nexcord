@@ -581,6 +581,61 @@ app.post('/api/auth/verify-otp', wrap(async (req, res) => {
   res.json({ session, user: publicUser(user), nexconnToken: user.nexconnToken });
 }));
 
+app.post('/api/auth/firebase-login', wrap(async (req, res) => {
+  const { phone, idToken, displayName } = req.body || {};
+  const clean = normalizePhone(phone);
+  if (!clean) throw new HttpError(400, 'A valid mobile number is required');
+  if (!idToken) throw new HttpError(400, 'Firebase ID token is required');
+
+  const digitsOnly = clean.replace(/\D/g, '');
+  const isAdmin = isAdminPhone(clean);
+
+  const d = db();
+  let user = Object.values(d.users).find((u) => u.phone === clean || (isAdmin && (u.phone === clean || u.username === 'admin')));
+  const suffix = digitsOnly.slice(-4) || 'user';
+
+  if (!user) {
+    const uid = isAdmin ? 'u_admin' : rid('u', 12);
+    const chosenName = isAdmin
+      ? 'System Administrator 🛡️'
+      : (String(displayName || '').trim() || `Player ${suffix}`);
+    user = {
+      id: uid,
+      username: isAdmin ? 'admin' : `user_${digitsOnly.slice(-8) || uid.slice(-6)}`,
+      phone: clean,
+      displayName: chosenName,
+      avatarColor: isAdmin ? '#5865F2' : pick(AVATAR_COLORS),
+      status: 'online',
+      customStatus: isAdmin ? 'Nexcord System Administrator ⚡' : 'Verified via Google Firebase 📱',
+      about: isAdmin ? 'Master Admin Account with full system telemetry and API control.' : `Nexcord Member (${clean})`,
+      createdAt: Date.now(),
+      isAdmin,
+      salt: '',
+      hash: '',
+    };
+    await ensureNexconnToken(user);
+    d.users[user.id] = user;
+    save();
+  } else {
+    if (isAdmin) {
+      user.isAdmin = true;
+      user.displayName = 'System Administrator 🛡️';
+      user.username = 'admin';
+    } else if (displayName && String(displayName).trim()) {
+      user.displayName = String(displayName).trim().slice(0, 32);
+    }
+    await ensureNexconnToken(user);
+    save();
+  }
+
+  addLog('success', 'AUTH', `Firebase authenticated user: ${user.displayName} (${clean})${user.isAdmin ? ' [ADMIN]' : ''}`);
+
+  notify(Object.keys(db().users), 'sync');
+  const session = newSession(user);
+  setAuthCookie(res, session);
+  res.json({ session, user: publicUser(user), nexconnToken: user.nexconnToken });
+}));
+
 app.post('/api/auth/register', wrap(async (req, res) => {
   const { username, password, displayName } = req.body || {};
   const uname = String(username || '').trim().toLowerCase();
