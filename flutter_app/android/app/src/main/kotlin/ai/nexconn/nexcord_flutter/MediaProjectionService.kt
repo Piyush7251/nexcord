@@ -16,17 +16,24 @@ class MediaProjectionService : Service() {
         private const val NOTIFICATION_ID = 4404
 
         fun start(context: Context) {
-            val intent = Intent(context, MediaProjectionService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                val intent = Intent(context, MediaProjectionService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (_: Exception) {
+                // Prevent crash on Android 12+ if foreground service launch is restricted
             }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, MediaProjectionService::class.java)
-            context.stopService(intent)
+            try {
+                val intent = Intent(context, MediaProjectionService::class.java)
+                context.stopService(intent)
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -37,14 +44,22 @@ class MediaProjectionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = createNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (_: SecurityException) {
+            stopSelf()
+            return START_NOT_STICKY
+        } catch (_: Exception) {
+            stopSelf()
+            return START_NOT_STICKY
         }
         return START_NOT_STICKY
     }
