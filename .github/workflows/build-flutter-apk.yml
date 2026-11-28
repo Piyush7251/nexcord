@@ -37,7 +37,14 @@ jobs:
 
       - name: Install Flutter Dependencies
         working-directory: flutter_app
-        run: flutter pub get
+        run: |
+          flutter pub get || true
+          for f in "$HOME"/.pub-cache/hosted/pub.dev/ai_nexconn_chatui_plugin-*/android/src/main/kotlin/ai/nexconn/ai_nexconn_chatui_plugin/AiNexconnChatuiPlugin.kt; do
+            if [ -f "$f" ]; then
+              mv "$f" "$(dirname "$f")/AiNexconnChatUIPlugin.kt"
+            fi
+          done
+          flutter pub get
 
       - name: Build Release APK
         working-directory: flutter_app
