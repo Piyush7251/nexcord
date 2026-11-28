@@ -370,6 +370,25 @@ app.get('/api/download/apk', (_req, res) => {
   );
 });
 
+// iOS IPA direct download route (redirects to latest GitHub Release .ipa)
+app.get('/api/download/ipa', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  const candidates = [
+    path.join(__dirname, '..', '..', 'Nexcord-iOS.ipa'),
+    path.join(__dirname, '..', '..', 'flutter_app', 'build', 'ios', 'ipa', 'Nexcord-iOS.ipa'),
+  ];
+  const foundIpa = candidates.find((p) => fs.existsSync(p));
+  if (foundIpa) {
+    return res.download(foundIpa, 'Nexcord-iOS.ipa');
+  }
+  res.redirect(
+    process.env.IPA_DOWNLOAD_URL ||
+      'https://github.com/Piyush7251/nexcord/releases/latest/download/Nexcord-iOS.ipa',
+  );
+});
+
 // Public Analytics & Traction Telemetry Page
 app.get('/stats', (_req, res) => {
   const d = db();

@@ -29,6 +29,11 @@ export function getApkDownloadUrl(): string {
   return `${base}/api/download/apk`;
 }
 
+export function getIpaDownloadUrl(): string {
+  const base = getApiBase();
+  return `${base}/api/download/ipa`;
+}
+
 function getCookie(name: string): string {
   if (typeof document === 'undefined') return '';
   const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));

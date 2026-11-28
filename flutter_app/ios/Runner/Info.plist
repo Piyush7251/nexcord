@@ -38,8 +38,27 @@
 	<string>Nexcord uses the camera for video calls and live broadcasts.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Nexcord uses the microphone for squad voice huddles and calls.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Nexcord uses your phone contacts so you can find and call friends directly.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Nexcord uses photo library access to share clips and screenshots.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Nexcord saves shared images and clips to your photo library.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Nexcord uses Bluetooth for wireless headset audio during voice and video calls.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Nexcord uses the local network for low-latency peer audio and video calls.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>voip</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

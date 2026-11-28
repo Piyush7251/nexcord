@@ -554,7 +554,7 @@ class _NexcordHomeState extends State<NexcordHome> {
           ],
         ),
         content: Text(
-          '$rationale\n\nPlease grant $permissionName permission in Android app settings to continue.',
+          '$rationale\n\nPlease grant $permissionName permission in device app settings to continue.',
           style: const TextStyle(color: Color(0xFFDBDEE1), fontSize: 13.5),
         ),
         actions: [
@@ -6052,7 +6052,7 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                     ),
                     SizedBox(height: 3),
                     Text(
-                      'Dial any friend’s phone number or sync your Android contacts for 1-tap voice & video calling across app and web.',
+                      'Dial any friend’s phone number or sync your phone contacts for 1-tap voice & video calling across app and web.',
                       style: TextStyle(color: Color(0xFFB5BAC1), fontSize: 12),
                     ),
                   ],

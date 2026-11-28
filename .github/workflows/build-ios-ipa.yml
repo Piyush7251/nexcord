@@ -1,0 +1,76 @@
+name: Build Nexcord iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'flutter_app/**'
+      - '.github/workflows/build-ios-ipa.yml'
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Read App Version
+        run: |
+          VER=$(grep -E '^version:' flutter_app/pubspec.yaml | head -n1 | sed -E 's/version:[[:space:]]*([^+]+).*/\1/')
+          echo "APP_VERSION=v${VER}" >> "$GITHUB_ENV"
+
+      - name: Install Flutter Dependencies
+        working-directory: flutter_app
+        run: |
+          flutter pub get || true
+          for f in "$HOME"/.pub-cache/hosted/pub.dev/ai_nexconn_chatui_plugin-*/android/src/main/kotlin/ai/nexconn/ai_nexconn_chatui_plugin/AiNexconnChatuiPlugin.kt; do
+            if [ -f "$f" ]; then
+              mv "$f" "$(dirname "$f")/AiNexconnChatUIPlugin.kt"
+            fi
+          done
+          flutter pub get
+
+      - name: Install CocoaPods Dependencies
+        working-directory: flutter_app/ios
+        run: pod install --repo-update
+
+      - name: Build Unsigned Release iOS App
+        working-directory: flutter_app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package Nexcord-iOS.ipa
+        run: |
+          mkdir -p build_ipa/Payload
+          cp -R flutter_app/build/ios/iphoneos/Runner.app build_ipa/Payload/
+          (cd build_ipa && zip -qry ../Nexcord-iOS.ipa Payload)
+          ls -lh Nexcord-iOS.ipa
+
+      - name: Upload Nexcord-iOS.ipa Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nexcord-iOS-IPA-${{ env.APP_VERSION }}
+          path: Nexcord-iOS.ipa
+          if-no-files-found: error
+
+      - name: Publish iOS IPA to GitHub Release ${{ env.APP_VERSION }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ env.APP_VERSION }}" >/dev/null 2>&1; then
+            gh release upload "${{ env.APP_VERSION }}" Nexcord-iOS.ipa --clobber
+          else
+            gh release create "${{ env.APP_VERSION }}" Nexcord-iOS.ipa \
+              --title "Nexcord ${{ env.APP_VERSION }} - Android & iOS Mobile Apps" \
+              --notes "Cross-platform mobile release with personal friend/contact calling and Material 3 UI." \
+              --latest
+          fi

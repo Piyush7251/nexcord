@@ -43,7 +43,7 @@ import type {
   UserStatus,
 } from '../types';
 import type { SdkConnectionMode } from '../services/nexconn';
-import { api, getApiBase, getApkDownloadUrl, setApiBase } from '../services/api';
+import { api, getApiBase, getApkDownloadUrl, getIpaDownloadUrl, setApiBase } from '../services/api';
 import { Avatar } from './Avatar';
 import { sendFirebasePhoneOtp, verifyFirebasePhoneOtp } from '../services/firebaseAuth';
 
@@ -293,25 +293,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
             </div>
           </div>
 
-          {/* Desktop APK Banner */}
+          {/* Desktop App Download Banner */}
           <div className="nc-apk-banner desktop-apk">
             <div className="nc-apk-left">
               <div className="nc-apk-icon">
                 <Smartphone size={20} />
               </div>
               <div>
-                <div className="nc-apk-title">Nexcord for Android (v1.1)</div>
-                <div className="nc-apk-sub">Latest Material 3 UI &amp; UX • Direct APK</div>
+                <div className="nc-apk-title">Nexcord Mobile (v1.1.1)</div>
+                <div className="nc-apk-sub">Android (.apk) &amp; iOS (.ipa) • Material 3 UI</div>
               </div>
             </div>
-            <a
-              href={getApkDownloadUrl()}
-              download="Nexcord-Flutter.apk"
-              className="nc-btn primary sm nc-apk-btn"
-            >
-              <Download size={14} />
-              <span>Download APK</span>
-            </a>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
+              <a
+                href={getApkDownloadUrl()}
+                download="Nexcord-Flutter.apk"
+                className="nc-btn primary sm nc-apk-btn"
+              >
+                <Download size={14} />
+                <span>Android APK</span>
+              </a>
+              <a
+                href={getIpaDownloadUrl()}
+                download="Nexcord-iOS.ipa"
+                className="nc-btn secondary sm nc-apk-btn"
+              >
+                <Download size={14} />
+                <span>iOS IPA</span>
+              </a>
+            </div>
           </div>
         </div>
 
@@ -637,25 +647,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
             </div>
           )}
 
-          {/* Mobile APK Download Card (shown on <=900px) */}
+          {/* Mobile App Download Card (shown on <=900px) */}
           <div className="nc-apk-banner mobile-apk">
             <div className="nc-apk-left">
               <div className="nc-apk-icon">
                 <Smartphone size={18} />
               </div>
               <div>
-                <div className="nc-apk-title">Nexcord for Android (v1.1)</div>
-                <div className="nc-apk-sub">Latest Material 3 UI &amp; UX build</div>
+                <div className="nc-apk-title">Nexcord Mobile (v1.1.1)</div>
+                <div className="nc-apk-sub">Android APK &amp; iOS IPA build</div>
               </div>
             </div>
-            <a
-              href={getApkDownloadUrl()}
-              download="Nexcord-Flutter.apk"
-              className="nc-btn primary xs nc-apk-btn"
-            >
-              <Download size={13} />
-              <span>Download APK</span>
-            </a>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
+              <a
+                href={getApkDownloadUrl()}
+                download="Nexcord-Flutter.apk"
+                className="nc-btn primary xs nc-apk-btn"
+              >
+                <Download size={13} />
+                <span>APK</span>
+              </a>
+              <a
+                href={getIpaDownloadUrl()}
+                download="Nexcord-iOS.ipa"
+                className="nc-btn secondary xs nc-apk-btn"
+              >
+                <Download size={13} />
+                <span>iOS IPA</span>
+              </a>
+            </div>
           </div>
 
           <div className="nc-auth-server-cfg">
@@ -1790,18 +1810,28 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 <Smartphone size={18} />
               </div>
               <div>
-                <div className="nc-apk-title">Nexcord for Android (v1.1)</div>
-                <div className="nc-apk-sub">Download the latest updated mobile app APK</div>
+                <div className="nc-apk-title">Nexcord Mobile (v1.1.1)</div>
+                <div className="nc-apk-sub">Download latest Android APK or iOS IPA</div>
               </div>
             </div>
-            <a
-              href={getApkDownloadUrl()}
-              download="Nexcord-Flutter.apk"
-              className="nc-btn primary xs nc-apk-btn"
-            >
-              <Download size={13} />
-              <span>Download APK</span>
-            </a>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
+              <a
+                href={getApkDownloadUrl()}
+                download="Nexcord-Flutter.apk"
+                className="nc-btn primary xs nc-apk-btn"
+              >
+                <Download size={13} />
+                <span>APK</span>
+              </a>
+              <a
+                href={getIpaDownloadUrl()}
+                download="Nexcord-iOS.ipa"
+                className="nc-btn secondary xs nc-apk-btn"
+              >
+                <Download size={13} />
+                <span>iOS IPA</span>
+              </a>
+            </div>
           </div>
 
           <div className="nc-modal-actions spread">

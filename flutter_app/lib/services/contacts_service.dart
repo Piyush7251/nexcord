@@ -36,7 +36,7 @@ class ContactsService {
     final granted = await requestContactsPermission();
     if (!granted) {
       throw Exception(
-        'Contacts permission denied. Allow Contacts access in Android Settings or enter phone numbers manually.',
+        'Contacts permission denied. Allow Contacts access in device Settings or enter phone numbers manually.',
       );
     }
 
