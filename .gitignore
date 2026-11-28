@@ -40,7 +40,7 @@ scratch/
 # OS files
 .DS_Store
 Thumbs.db
-flutter/
+/flutter/
 .continue/
 
 *.apk
