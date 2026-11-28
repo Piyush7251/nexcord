@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  ArrowDown,
   AtSign,
   Check,
   ChevronDown,
   ChevronRight,
+  Compass,
   Copy,
   CornerUpLeft,
   Download,
@@ -22,6 +24,7 @@ import {
   MonitorUp,
   Paperclip,
   Phone,
+  PhoneCall,
   PhoneOff,
   Pin,
   PinOff,
@@ -31,9 +34,13 @@ import {
   Send,
   Settings,
   Shield,
+  Smartphone,
   Smile,
+  Sparkles,
   Trash2,
   Tv,
+  Upload,
+  UserPlus,
   Users,
   Video,
   Volume2,
@@ -44,6 +51,7 @@ import type {
   CallSessionState,
   Channel,
   ChatMessage,
+  DirectCallSession,
   LiveHypeBurst,
   NexconnConfig,
   PinnedMessageSnapshot,
@@ -53,13 +61,14 @@ import type {
   Server,
   User,
 } from './types';
-import { api, getApiBase, getSessionToken, setSessionToken } from './services/api';
+import { api, getApiBase, getApkDownloadUrl, getSessionToken, setSessionToken } from './services/api';
 import { nexconn, targetKeyOf } from './services/nexconn';
 import type { ChannelTarget, SdkConnectionMode } from './services/nexconn';
+import { playRingtonePulse } from './services/soundboard';
 import { Avatar } from './components/Avatar';
 import { QuickChatBar } from './components/QuickChatBar';
 import { LiveStreamStage } from './components/LiveStreamStage';
-import { IncomingCallModal, VoiceCallStage } from './components/VoiceCallStage';
+import { IncomingCallModal, PersonalCallBanner, VoiceCallStage } from './components/VoiceCallStage';
 import {
   AuthScreen,
   CreateChannelModal,
@@ -97,6 +106,26 @@ const INITIAL_CALL: CallSessionState = {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function isSameCalendarDay(a: number, b: number): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return (
+    da.getFullYear() === db.getFullYear() &&
+    da.getMonth() === db.getMonth() &&
+    da.getDate() === db.getDate()
+  );
+}
+
+function formatDateDivider(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  if (isSameCalendarDay(ts, now.getTime())) return 'Today';
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (isSameCalendarDay(ts, yesterday.getTime())) return 'Yesterday';
+  return d.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 function getEmojiOnlyCategory(text: string): 'single' | 'multiple' | 'none' {
@@ -184,7 +213,7 @@ export function App() {
   const [activeServerId, setActiveServerId] = useState<string>('');
   const [activeChannelId, setActiveChannelId] = useState<string>('');
   const [activeDmUserId, setActiveDmUserId] = useState<string>('');
-  const [friendsTab, setFriendsTab] = useState<'online' | 'all' | 'pending' | 'add'>('online');
+  const [friendsTab, setFriendsTab] = useState<'online' | 'all' | 'contacts' | 'pending' | 'add'>('online');
   const [contactMatches, setContactMatches] = useState<Array<{
     user: User;
     contactName: string;
@@ -192,10 +221,13 @@ export function App() {
     isFriend: boolean;
     hasPendingOutgoing: boolean;
     hasPendingIncoming: boolean;
+    isOnline?: boolean;
   }>>([]);
   const [contactInput, setContactInput] = useState('');
   const [contactBusy, setContactBusy] = useState(false);
   const [contactFeedback, setContactFeedback] = useState<string | null>(null);
+  const [dialPhone, setDialPhone] = useState('');
+  const [dialFeedback, setDialFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
   const [showMemberList, setShowMemberList] = useState(true);
   const [showPinsDrawer, setShowPinsDrawer] = useState(false);
@@ -232,10 +264,13 @@ export function App() {
   // Voice / Call
   const [callState, setCallState] = useState<CallSessionState>(INITIAL_CALL);
   const [incomingCall, setIncomingCall] = useState<{ callId: string; callerId: string; isVideo: boolean } | null>(null);
+  const [activeDirectCall, setActiveDirectCall] = useState<DirectCallSession | null>(null);
+  const [directCallExpanded, setDirectCallExpanded] = useState(false);
 
   // Modals
   const [showSdkModal, setShowSdkModal] = useState(false);
   const [showCreateServer, setShowCreateServer] = useState(false);
+  const [createServerTab, setCreateServerTab] = useState<'create' | 'join'>('create');
   const [createChannelCat, setCreateChannelCat] = useState<string | null | undefined>(undefined);
   const [showServerSettings, setShowServerSettings] = useState(false);
   const [showServerMenu, setShowServerMenu] = useState(false);
@@ -244,8 +279,13 @@ export function App() {
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [profileUser, setProfileUser] = useState<User | null>(null);
+  const [friendFilter, setFriendFilter] = useState('');
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTypingSentRef = useRef(0);
   const activeTargetKeyRef = useRef('');
@@ -297,7 +337,12 @@ export function App() {
   // WebRTC Signal Polling Fallback (ensures signals are never lost even if SSE buffers behind proxy/Cloudflare)
   useEffect(() => {
     if (!me) return;
-    const isCallActive = callState.status === 'connected' || !!myVoice || isLiveStageActive;
+    const isCallActive =
+      callState.status === 'connected' ||
+      callState.status === 'calling' ||
+      !!activeDirectCall ||
+      !!myVoice ||
+      isLiveStageActive;
     if (!isCallActive) return;
 
     const timer = setInterval(async () => {
@@ -312,7 +357,7 @@ export function App() {
     }, 250);
 
     return () => clearInterval(timer);
-  }, [me, callState.status, myVoice, isLiveStageActive]);
+  }, [me, callState.status, activeDirectCall, myVoice, isLiveStageActive]);
 
   // Self-healing WebRTC watchdog (reconnects stalled or failed peer connections)
   useEffect(() => {
@@ -333,6 +378,15 @@ export function App() {
 
     return () => clearInterval(timer);
   }, [me, myVoice, callState.status, callState.callId, callState.peerIds]);
+
+  // Ringtone pulse while a 1:1 direct call is ringing
+  useEffect(() => {
+    if (!me || !activeDirectCall || activeDirectCall.status !== 'ringing') return;
+    const kind = activeDirectCall.callerId === me.id ? 'outgoing' : 'incoming';
+    playRingtonePulse(kind);
+    const timer = setInterval(() => playRingtonePulse(kind), 2600);
+    return () => clearInterval(timer);
+  }, [me, activeDirectCall?.callId, activeDirectCall?.status, activeDirectCall?.callerId]);
 
   const activeTarget: ChannelTarget | null = useMemo(() => {
     if (!me) return null;
@@ -385,6 +439,47 @@ export function App() {
     setDms(data.dms);
     setDmPins(data.dmPins || {});
     setMyVoice(data.myVoice);
+
+    const dc = data.activeDirectCall || null;
+    setActiveDirectCall(dc);
+    if (dc) {
+      setUsers((prev) => {
+        const next = { ...prev };
+        if (dc.caller) next[dc.caller.id] = dc.caller;
+        if (dc.callee) next[dc.callee.id] = dc.callee;
+        return next;
+      });
+      if (dc.status === 'connected' && data.me) {
+        const peerId = dc.callerId === data.me.id ? dc.calleeId : dc.callerId;
+        const peerUser = dc.callerId === data.me.id ? dc.callee : dc.caller;
+        nexconn.setCurrentCallId(dc.callId);
+        if (!nexconn.hasPeer(peerId)) {
+          maybeConnectToPeer(peerId, dc.callId);
+        }
+        setCallState((prev) => {
+          if (prev.callId === dc.callId && prev.status === 'connected') return prev;
+          return {
+            ...prev,
+            status: 'connected',
+            callId: dc.callId,
+            isGroup: false,
+            mediaType: dc.mediaType,
+            peerIds: [peerId],
+            targetLabel: peerUser?.displayName || dc.contactLabel || peerId,
+            startedAt: prev.startedAt || dc.answeredAt || Date.now(),
+          };
+        });
+      }
+    } else {
+      setDirectCallExpanded(false);
+      setCallState((prev) => {
+        if (prev.callId.startsWith('dc_')) {
+          nexconn.endCall(prev.callId).catch(() => {});
+          return INITIAL_CALL;
+        }
+        return prev;
+      });
+    }
 
     if (data.myVoice) {
       const srv = data.servers.find((s) => s.id === data.myVoice?.serverId);
@@ -566,6 +661,51 @@ export function App() {
       } catch (err) {
         console.warn('webrtc-signal parse error', err);
       }
+    });
+    es.addEventListener('direct-call', (e: MessageEvent) => {
+      try {
+        const call = JSON.parse(e.data) as DirectCallSession;
+        setActiveDirectCall(call);
+        setUsers((prev) => {
+          const next = { ...prev };
+          if (call.caller) next[call.caller.id] = call.caller;
+          if (call.callee) next[call.callee.id] = call.callee;
+          return next;
+        });
+        if (call.status === 'connected') {
+          const myId = meRef.current?.id || '';
+          const peerId = call.callerId === myId ? call.calleeId : call.callerId;
+          const peerUser = call.callerId === myId ? call.callee : call.caller;
+          nexconn.setCurrentCallId(call.callId);
+          nexconn.connectToPeer(peerId, call.callId).catch(() => {});
+          setCallState((prev) => ({
+            ...prev,
+            status: 'connected',
+            callId: call.callId,
+            isGroup: false,
+            mediaType: call.mediaType,
+            peerIds: [peerId],
+            targetLabel: peerUser?.displayName || call.contactLabel || peerId,
+            startedAt: prev.startedAt || call.answeredAt || Date.now(),
+            cameraEnabled: call.mediaType === 'video' ? prev.cameraEnabled : false,
+          }));
+        }
+      } catch {}
+    });
+    es.addEventListener('direct-call-ended', (e: MessageEvent) => {
+      try {
+        const { callId } = JSON.parse(e.data);
+        setActiveDirectCall((prev) => (prev && (!callId || prev.callId === callId) ? null : prev));
+        setIncomingCall((prev) => (prev && (!callId || prev.callId === callId) ? null : prev));
+        setDirectCallExpanded(false);
+        setCallState((prev) => {
+          if (!callId || prev.callId === callId || prev.callId.startsWith('dc_')) {
+            nexconn.endCall(prev.callId).catch(() => {});
+            return INITIAL_CALL;
+          }
+          return prev;
+        });
+      } catch {}
     });
     es.addEventListener('live-viewers', (e: MessageEvent) => {
       try {
@@ -750,8 +890,24 @@ export function App() {
   }, [activeTarget]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeMessages.length, activeTargetKey]);
+    const el = messagesScrollRef.current;
+    if (!el) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 260) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setShowScrollBottom(false);
+    }
+  }, [activeMessages.length]);
+
+  useEffect(() => {
+    setShowScrollBottom(false);
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    });
+  }, [activeTargetKey]);
 
   // Ctrl+K Quick Switcher & Escape dismissals
   useEffect(() => {
@@ -759,13 +915,16 @@ export function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setShowQuickSwitcher((v) => !v);
-      } else if (e.key === 'Escape' && fullscreenImage) {
-        setFullscreenImage(null);
+      } else if (e.key === 'Escape') {
+        if (fullscreenImage) setFullscreenImage(null);
+        else if (emojiMenuMsgId) setEmojiMenuMsgId(null);
+        else if (showServerMenu) setShowServerMenu(false);
+        else if (replyTo) setReplyTo(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [fullscreenImage]);
+  }, [fullscreenImage, emojiMenuMsgId, showServerMenu, replyTo]);
 
   // ---------------------------------------------------------------- Auth actions
   const handleLogin = async (username: string, password: string) => {
@@ -849,6 +1008,9 @@ export function App() {
     const text = composerText.trim();
     const ref = replyTo;
     setComposerText('');
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.style.height = 'auto';
+    }
     setReplyTo(null);
     const mentionAll = text.includes('@everyone') || text.includes('@here');
     const msg = await nexconn.sendTextMessage(activeTarget, text, {
@@ -859,6 +1021,10 @@ export function App() {
       const cur = prev[activeTargetKey] || [];
       if (cur.some((m) => m.id === msg.id)) return prev;
       return { ...prev, [activeTargetKey]: [...cur, msg] };
+    });
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setShowScrollBottom(false);
     });
   };
 
@@ -912,8 +1078,16 @@ export function App() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !activeTarget) return;
+    await uploadSingleFile(file);
+  };
+
+  const uploadSingleFile = async (file: File) => {
+    if (!activeTarget) return;
     const msg = await nexconn.sendMediaFile(activeTarget, file, composerText.trim());
     setComposerText('');
+    if (composerTextareaRef.current) {
+      composerTextareaRef.current.style.height = 'auto';
+    }
     setMessagesByKey((prev) => {
       const cur = prev[activeTargetKey] || [];
       if (cur.some((m) => m.id === msg.id)) return prev;
@@ -921,8 +1095,12 @@ export function App() {
     });
   };
 
-  const handleComposerChange = (val: string) => {
+  const handleComposerChange = (val: string, el?: HTMLTextAreaElement | null) => {
     setComposerText(val);
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 136)}px`;
+    }
     if (activeTarget && Date.now() - lastTypingSentRef.current > 2000) {
       lastTypingSentRef.current = Date.now();
       nexconn.sendTyping(activeTarget);
@@ -1050,7 +1228,11 @@ export function App() {
     }
   }, [me, servers, myVoice]);
 
-  const startDirectCall = async (userId: string, video: boolean) => {
+  const startDirectCall = async (
+    userId: string,
+    video: boolean,
+    opts?: { phone?: string; contactName?: string },
+  ) => {
     nexconn.unlockAudio();
     const media = await nexconn.ensureLocalMedia(true, video);
     if (!media?.getAudioTracks().some((track) => track.readyState === 'live')) {
@@ -1062,31 +1244,97 @@ export function App() {
       }
       return;
     }
-    const u = users[userId];
-    const callId = await nexconn.startCall({
-      calleeIds: [userId],
-      isGroup: false,
-      video,
+
+    const res = await api.startDirectCall({
+      ...(userId ? { targetUserId: userId } : {}),
+      ...(opts?.phone ? { phone: opts.phone } : {}),
+      mediaType: video ? 'video' : 'audio',
+      contactName: opts?.contactName || '',
     });
-    nexconn.setCurrentCallId(callId);
-    nexconn.connectToPeer(userId, callId).catch(() => {});
+    const dc = res.call;
+    const peerId = dc.calleeId;
+    const peerUser = dc.callee || users[peerId];
+    setActiveDirectCall(dc);
+    if (peerUser) {
+      setUsers((prev) => ({ ...prev, [peerUser.id]: peerUser }));
+    }
+    setDirectCallExpanded(false);
+    nexconn.setCurrentCallId(dc.callId);
+
+    // Best-effort Nexconn Call SDK telemetry if connected
+    nexconn
+      .startCall({
+        calleeIds: [peerId],
+        isGroup: false,
+        video,
+      })
+      .catch(() => {});
+
     setCallState({
-      status: 'connected',
-      callId,
+      status: 'calling',
+      callId: dc.callId,
       isGroup: false,
       mediaType: video ? 'video' : 'audio',
-      peerIds: [userId],
-      targetLabel: u?.displayName || userId,
+      peerIds: [peerId],
+      targetLabel: peerUser?.displayName || opts?.contactName || peerId,
       startedAt: Date.now(),
       micMuted: false,
       cameraEnabled: video,
       deafened: false,
       screenSharing: false,
     });
+    await runSync().catch(() => {});
+  };
+
+  const acceptDirectCallSession = async (call: DirectCallSession, asVideo: boolean) => {
+    nexconn.unlockAudio();
+    const media = await nexconn.ensureLocalMedia(true, asVideo);
+    if (!media?.getAudioTracks().some((track) => track.readyState === 'live')) {
+      const isSecure = typeof window !== 'undefined' ? window.isSecureContext : true;
+      if (!isSecure) {
+        window.alert('Microphone access requires a secure HTTPS connection on mobile browsers. Please open https://nexcord-a85i.onrender.com.');
+      } else {
+        window.alert('Microphone access is required to join the call. Please allow mic permission in browser settings.');
+      }
+      return;
+    }
+    const res = await api.acceptDirectCall(call.callId, asVideo ? 'video' : 'audio');
+    const accepted = res.call;
+    const peerId = accepted.callerId === me?.id ? accepted.calleeId : accepted.callerId;
+    const peerUser = accepted.callerId === me?.id ? accepted.callee : accepted.caller;
+    if (peerUser) {
+      setUsers((prev) => ({ ...prev, [peerUser.id]: peerUser }));
+    }
+    setActiveDirectCall(accepted);
+    setIncomingCall(null);
+    setDirectCallExpanded(true);
+    nexconn.setCurrentCallId(accepted.callId);
+    await nexconn.acceptCall(accepted.callId, asVideo);
+    nexconn.connectToPeer(peerId, accepted.callId).catch(() => {});
+    setCallState({
+      status: 'connected',
+      callId: accepted.callId,
+      isGroup: false,
+      mediaType: asVideo ? 'video' : 'audio',
+      peerIds: [peerId],
+      targetLabel: peerUser?.displayName || accepted.contactLabel || peerId,
+      startedAt: accepted.answeredAt || Date.now(),
+      micMuted: false,
+      cameraEnabled: asVideo,
+      deafened: false,
+      screenSharing: false,
+    });
   };
 
   const hangupCall = async () => {
-    await nexconn.endCall(callState.callId);
+    const dcId = activeDirectCall?.callId || (callState.callId.startsWith('dc_') ? callState.callId : '');
+    if (dcId) {
+      const reason = activeDirectCall?.status === 'ringing' && activeDirectCall.callerId !== me?.id ? 'declined' : 'ended';
+      await api.endDirectCall(dcId, reason).catch(() => {});
+      setActiveDirectCall(null);
+      setDirectCallExpanded(false);
+    }
+    await nexconn.endCall(callState.callId || dcId);
     if (myVoice) {
       await api.leaveVoice().catch(() => {});
       setMyVoice(null);
@@ -1155,8 +1403,12 @@ export function App() {
   if (!authReady) {
     return (
       <div className="nc-loading-screen">
-        <Gamepad2 size={36} />
-        <span>Loading Nexcord...</span>
+        <div className="nc-loading-logo-box">
+          <Gamepad2 size={34} />
+        </div>
+        <div className="nc-loading-title">Nexcord</div>
+        <div className="nc-loading-sub">Connecting to Nexconn Real-Time Edge...</div>
+        <div className="nc-loading-bar"><span /></div>
       </div>
     );
   }
@@ -1180,7 +1432,7 @@ export function App() {
 
   const isViewingVoiceStage =
     (viewMode === 'server' && activeChannel?.type === 'voice') ||
-    (viewMode === 'home' && callState.status !== 'idle' && callState.peerIds.includes(activeDmUserId));
+    (directCallExpanded && activeDirectCall?.status === 'connected');
 
   const typingUsers = Object.entries(typingByKey[activeTargetKey] || {})
     .filter(([uid]) => uid !== me.id)
@@ -1243,14 +1495,43 @@ export function App() {
           <button
             type="button"
             className="nc-rail-icon add"
-            onClick={() => setShowCreateServer(true)}
-            title="Create a Group / Server (+)"
+            onClick={() => {
+              setCreateServerTab('create');
+              setShowCreateServer(true);
+            }}
+            title="Create a Squad Server (+)"
           >
             <Plus size={22} />
           </button>
         </div>
 
+        <div className="nc-rail-item-wrap">
+          <button
+            type="button"
+            className="nc-rail-icon contacts"
+            onClick={() => {
+              setCreateServerTab('join');
+              setShowCreateServer(true);
+            }}
+            title="Join a Server with Invite / ID"
+          >
+            <Compass size={20} />
+          </button>
+        </div>
+
         <div className="nc-rail-spacer" />
+
+        <div className="nc-rail-item-wrap">
+          <a
+            href={getApkDownloadUrl()}
+            download="Nexcord-Flutter.apk"
+            className="nc-rail-icon apk-rail-btn"
+            title="Download Nexcord Android App (v1.1 APK)"
+            style={{ textDecoration: 'none', color: '#57f287' }}
+          >
+            <Smartphone size={20} />
+          </a>
+        </div>
 
         {me?.isAdmin && (
           <div className="nc-rail-item-wrap">
@@ -1654,14 +1935,14 @@ export function App() {
                 <Users size={20} className="nc-muted" />
                 <h2>Friends</h2>
                 <div className="nc-friends-tabs">
-                  {(['online', 'all', 'pending', 'add'] as const).map((t) => (
+                  {(['online', 'all', 'contacts', 'pending', 'add'] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
-                      className={`nc-friend-tab ${friendsTab === t ? 'active' : ''} ${t === 'add' ? 'add-btn' : ''}`}
+                      className={`nc-friend-tab ${friendsTab === t ? 'active' : ''} ${t === 'add' ? 'add-btn' : ''} ${t === 'contacts' ? 'contacts-btn' : ''}`}
                       onClick={() => setFriendsTab(t)}
                     >
-                      {t === 'add' ? 'Add Friend' : t[0].toUpperCase() + t.slice(1)}
+                      {t === 'add' ? 'Add Friend' : t === 'contacts' ? 'Phone Contacts' : t[0].toUpperCase() + t.slice(1)}
                       {t === 'pending' && incomingReq.length > 0 && <span className="nc-mini-badge">{incomingReq.length}</span>}
                     </button>
                   ))}
@@ -1699,7 +1980,11 @@ export function App() {
                 <button
                   type="button"
                   className="nc-icon-btn"
-                  onClick={() => startDirectCall(dmUser.id, false)}
+                  onClick={() =>
+                    startDirectCall(dmUser.id, false).catch((err: any) =>
+                      window.alert(err?.message || 'Could not start call'),
+                    )
+                  }
                   title="Start Voice Call (Nexconn Call SDK)"
                 >
                   <Phone size={18} />
@@ -1707,7 +1992,11 @@ export function App() {
                 <button
                   type="button"
                   className="nc-icon-btn"
-                  onClick={() => startDirectCall(dmUser.id, true)}
+                  onClick={() =>
+                    startDirectCall(dmUser.id, true).catch((err: any) =>
+                      window.alert(err?.message || 'Could not start video call'),
+                    )
+                  }
                   title="Start Video Call (Nexconn Call SDK)"
                 >
                   <Video size={18} />
@@ -1874,6 +2163,31 @@ export function App() {
                                 <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{m.phone}</span>
                               </div>
                               <div className="nc-friend-btns">
+                                <button
+                                  type="button"
+                                  className="nc-btn xs green"
+                                  onClick={() =>
+                                    startDirectCall(m.user.id, false, { contactName: m.contactName }).catch((err: any) =>
+                                      setContactFeedback(err?.message || 'Could not start call'),
+                                    )
+                                  }
+                                  title="Voice Call"
+                                >
+                                  <PhoneCall size={13} />
+                                  <span>Call</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="nc-icon-btn sm"
+                                  onClick={() =>
+                                    startDirectCall(m.user.id, true, { contactName: m.contactName }).catch((err: any) =>
+                                      setContactFeedback(err?.message || 'Could not start video call'),
+                                    )
+                                  }
+                                  title="Video Call"
+                                >
+                                  <Video size={15} />
+                                </button>
                                 {m.isFriend ? (
                                   <button type="button" className="nc-btn xs secondary" onClick={() => openDm(m.user.id)}>
                                     <MessageSquare size={13} />
@@ -1904,6 +2218,209 @@ export function App() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : friendsTab === 'contacts' ? (
+                  <div className="nc-contacts-view">
+                    <div className="nc-contacts-hero">
+                      <div className="nc-contacts-icon">
+                        <PhoneCall size={22} />
+                      </div>
+                      <div>
+                        <h3>Call Friends Directly from Phone Contacts</h3>
+                        <p>Dial any phone number directly or import your phone contacts to voice &amp; video call across app and website.</p>
+                      </div>
+                    </div>
+
+                    <div className="nc-contact-dial-card">
+                      <div className="nc-list-subhead" style={{ marginTop: 0 }}>DIRECT PHONE NUMBER CALL</div>
+                      <form
+                        className="nc-add-friend-form"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!dialPhone.trim()) return;
+                          setDialFeedback(null);
+                          startDirectCall('', false, { phone: dialPhone.trim() })
+                            .then(() => setDialFeedback({ ok: true, text: `Calling ${dialPhone.trim()}...` }))
+                            .catch((err: any) => setDialFeedback({ ok: false, text: err?.message || 'Call failed' }));
+                        }}
+                      >
+                        <input
+                          type="tel"
+                          value={dialPhone}
+                          onChange={(e) => setDialPhone(e.target.value)}
+                          placeholder="Enter contact phone number (e.g. +91 98765 43210)"
+                        />
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button type="submit" className="nc-btn green sm" disabled={!dialPhone.trim()}>
+                            <PhoneCall size={14} />
+                            <span>Voice Call</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="nc-btn primary sm"
+                            disabled={!dialPhone.trim()}
+                            onClick={() => {
+                              if (!dialPhone.trim()) return;
+                              setDialFeedback(null);
+                              startDirectCall('', true, { phone: dialPhone.trim() })
+                                .then(() => setDialFeedback({ ok: true, text: `Video calling ${dialPhone.trim()}...` }))
+                                .catch((err: any) => setDialFeedback({ ok: false, text: err?.message || 'Call failed' }));
+                            }}
+                          >
+                            <Video size={14} />
+                            <span>Video</span>
+                          </button>
+                        </div>
+                      </form>
+                      {dialFeedback && (
+                        <div className={dialFeedback.ok ? 'nc-ok-banner' : 'nc-error-banner'} style={{ marginTop: 8 }}>
+                          {dialFeedback.text}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="nc-contact-dial-card" style={{ marginTop: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                        <div className="nc-list-subhead" style={{ margin: 0 }}>SCAN OR PICK PHONE CONTACTS</div>
+                        {typeof navigator !== 'undefined' && 'contacts' in navigator && (
+                          <button
+                            type="button"
+                            className="nc-btn primary xs"
+                            disabled={contactBusy}
+                            onClick={async () => {
+                              setContactFeedback(null);
+                              setContactBusy(true);
+                              try {
+                                const picked = await (navigator as any).contacts.select(['name', 'tel'], { multiple: true });
+                                const list = (picked || [])
+                                  .flatMap((c: any) =>
+                                    (c.tel || []).map((t: string) => ({
+                                      name: c.name?.[0] || '',
+                                      phone: String(t || '').trim(),
+                                    })),
+                                  )
+                                  .filter((x: any) => x.phone);
+                                if (list.length > 0) {
+                                  const res = await api.matchContacts({ contacts: list });
+                                  setContactMatches(res.matches);
+                                  setContactFeedback(`Matched ${res.matches.length} contacts on Nexcord out of ${list.length} selected.`);
+                                }
+                              } catch (err: any) {
+                                setContactFeedback(err?.message || 'Contact picker cancelled or unavailable.');
+                              } finally {
+                                setContactBusy(false);
+                              }
+                            }}
+                          >
+                            <Users size={13} />
+                            <span>Pick Phone Contacts</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!contactInput.trim()) return;
+                          setContactFeedback(null);
+                          setContactBusy(true);
+                          try {
+                            const nums = contactInput.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
+                            const res = await api.matchContacts({ phoneNumbers: nums });
+                            setContactMatches(res.matches);
+                            setContactFeedback(`Scanned ${nums.length} numbers: found ${res.matches.length} people on Nexcord!`);
+                          } catch (err: any) {
+                            setContactFeedback(err?.message || 'Failed to check contacts.');
+                          } finally {
+                            setContactBusy(false);
+                          }
+                        }}
+                        style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}
+                      >
+                        <input
+                          value={contactInput}
+                          onChange={(e) => setContactInput(e.target.value)}
+                          placeholder="Paste phone numbers (comma or newline separated)"
+                          className="nc-contact-scan-input"
+                        />
+                        <button type="submit" className="nc-btn secondary sm" disabled={contactBusy || !contactInput.trim()}>
+                          {contactBusy ? 'Scanning...' : 'Find Contacts'}
+                        </button>
+                      </form>
+
+                      {contactFeedback && (
+                        <div className="nc-ok-banner" style={{ marginTop: 10, fontSize: 12 }}>
+                          {contactFeedback}
+                        </div>
+                      )}
+
+                      {contactMatches.length > 0 ? (
+                        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div className="nc-list-subhead">AVAILABLE TO CALL ({contactMatches.length})</div>
+                          {contactMatches.map((m) => (
+                            <div key={m.user.id} className="nc-friend-row">
+                              <Avatar user={m.user} size={38} showStatus />
+                              <div className="nc-friend-info">
+                                <strong>
+                                  {m.contactName} {m.contactName !== m.user.displayName ? `(@${m.user.displayName})` : ''}
+                                </strong>
+                                <span style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>{m.phone}</span>
+                              </div>
+                              <div className="nc-friend-btns">
+                                <button
+                                  type="button"
+                                  className="nc-btn xs green"
+                                  onClick={() =>
+                                    startDirectCall(m.user.id, false, { contactName: m.contactName }).catch((err: any) =>
+                                      setContactFeedback(err?.message || 'Could not start call'),
+                                    )
+                                  }
+                                  title="Voice Call"
+                                >
+                                  <PhoneCall size={13} />
+                                  <span>Call</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="nc-icon-btn sm"
+                                  onClick={() =>
+                                    startDirectCall(m.user.id, true, { contactName: m.contactName }).catch((err: any) =>
+                                      setContactFeedback(err?.message || 'Could not start video call'),
+                                    )
+                                  }
+                                  title="Video Call"
+                                >
+                                  <Video size={16} />
+                                </button>
+                                <button type="button" className="nc-icon-btn sm" onClick={() => openDm(m.user.id)} title="Message">
+                                  <MessageSquare size={16} />
+                                </button>
+                                {!m.isFriend && !m.hasPendingOutgoing && (
+                                  <button
+                                    type="button"
+                                    className="nc-btn xs primary"
+                                    onClick={async () => {
+                                      await api.requestFriend({ userId: m.user.id });
+                                      await runSync();
+                                      setContactMatches((prev) =>
+                                        prev.map((x) => (x.user.id === m.user.id ? { ...x, hasPendingOutgoing: true } : x)),
+                                      );
+                                    }}
+                                  >
+                                    <UserPlus size={12} />
+                                    <span>Add</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="nc-empty-state" style={{ padding: '18px 8px' }}>
+                          Scan numbers above or pick from your phone contacts to call anyone on Nexcord immediately.
                         </div>
                       )}
                     </div>
@@ -1967,15 +2484,43 @@ export function App() {
                       </>
                     )}
                     {incomingReq.length === 0 && outgoingReq.length === 0 && (
-                      <div className="nc-empty-state">No pending friend requests.</div>
+                      <div className="nc-empty-hero">
+                        <div className="nc-empty-hero-ico"><UserPlus size={26} /></div>
+                        <h4>No pending friend requests</h4>
+                        <p>Share your gamer tag or phone number to squad up with friends.</p>
+                        <button type="button" className="nc-btn primary sm" onClick={() => setFriendsTab('add')}>
+                          <UserPlus size={14} /> Add a Friend
+                        </button>
+                      </div>
                     )}
                   </div>
                 ) : (
                   <div className="nc-friend-list">
+                    <div className="nc-friend-filter-bar">
+                      <Search size={15} className="nc-muted" />
+                      <input
+                        value={friendFilter}
+                        onChange={(e) => setFriendFilter(e.target.value)}
+                        placeholder="Search friends by name or username..."
+                      />
+                      {friendFilter && (
+                        <button type="button" className="nc-icon-btn sm" onClick={() => setFriendFilter('')}>
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
                     {(() => {
-                      const list = friends.filter((uid) =>
-                        friendsTab === 'online' ? users[uid]?.status !== 'offline' : true,
-                      );
+                      const q = friendFilter.trim().toLowerCase();
+                      const list = friends.filter((uid) => {
+                        const u = users[uid];
+                        const statusOk = friendsTab === 'online' ? u?.status !== 'offline' : true;
+                        if (!statusOk) return false;
+                        if (!q) return true;
+                        return (
+                          (u?.displayName || '').toLowerCase().includes(q) ||
+                          (u?.username || '').toLowerCase().includes(q)
+                        );
+                      });
                       return (
                         <>
                           <div className="nc-list-subhead">
@@ -1984,20 +2529,24 @@ export function App() {
                           {list.map((uid) => {
                             const u = users[uid];
                             return (
-                              <div key={uid} className="nc-friend-row">
-                                <Avatar user={u} size={36} showStatus />
+                              <div key={uid} className="nc-friend-row" onClick={() => openDm(uid)} style={{ cursor: 'pointer' }}>
+                                <Avatar user={u} size={38} showStatus />
                                 <div className="nc-friend-info">
                                   <strong>{u?.displayName || uid}</strong>
-                                  <span>{u?.customStatus || u?.status || 'offline'}</span>
+                                  <span>{u?.customStatus || (u?.status === 'online' ? 'Online' : u?.status || 'offline')}</span>
                                 </div>
-                                <div className="nc-friend-btns">
+                                <div className="nc-friend-btns" onClick={(e) => e.stopPropagation()}>
                                   <button type="button" className="nc-icon-btn" onClick={() => openDm(uid)} title="Message">
                                     <MessageSquare size={16} />
                                   </button>
                                   <button
                                     type="button"
                                     className="nc-icon-btn"
-                                    onClick={() => startDirectCall(uid, false)}
+                                    onClick={() =>
+                                      startDirectCall(uid, false).catch((err: any) =>
+                                        window.alert(err?.message || 'Could not start call'),
+                                      )
+                                    }
                                     title="Voice Call"
                                   >
                                     <Phone size={16} />
@@ -2005,7 +2554,11 @@ export function App() {
                                   <button
                                     type="button"
                                     className="nc-icon-btn"
-                                    onClick={() => startDirectCall(uid, true)}
+                                    onClick={() =>
+                                      startDirectCall(uid, true).catch((err: any) =>
+                                        window.alert(err?.message || 'Could not start video call'),
+                                      )
+                                    }
                                     title="Video Call"
                                   >
                                     <Video size={16} />
@@ -2015,13 +2568,87 @@ export function App() {
                             );
                           })}
                           {list.length === 0 && (
-                            <div className="nc-empty-state">No friends to show here yet.</div>
+                            <div className="nc-empty-hero">
+                              <div className="nc-empty-hero-ico"><Users size={26} /></div>
+                              <h4>{q ? 'No matching friends found' : friendsTab === 'online' ? 'No squadmates online right now' : 'Your squad list is empty'}</h4>
+                              <p>
+                                {q
+                                  ? 'Try a different search term or add someone new.'
+                                  : 'Add friends by username or phone number, or launch your first gaming server!'}
+                              </p>
+                              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                <button type="button" className="nc-btn primary sm" onClick={() => setFriendsTab('add')}>
+                                  <UserPlus size={14} /> Add Friend
+                                </button>
+                                <button
+                                  type="button"
+                                  className="nc-btn secondary sm"
+                                  onClick={() => {
+                                    setCreateServerTab('create');
+                                    setShowCreateServer(true);
+                                  }}
+                                >
+                                  <Plus size={14} /> Create Squad Server
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </>
                       );
                     })()}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Case A2: Zero-Server / Empty Arena Onboarding Hub */}
+            {viewMode === 'server' && !activeServer && (
+              <div className="nc-empty-arena-hub">
+                <div className="nc-empty-arena-badge">
+                  <Sparkles size={13} /> WELCOME TO NEXCORD ARENA
+                </div>
+                <h2>Ready to Launch Your Squad Hub?</h2>
+                <p>
+                  Create a gaming server with tactical mini-map pings, live 60 FPS esports streams, and 1-click voice huddles — or join an existing squad with an invite code.
+                </p>
+                <div className="nc-empty-arena-grid">
+                  <button
+                    type="button"
+                    className="nc-arena-action-card primary"
+                    onClick={() => {
+                      setCreateServerTab('create');
+                      setShowCreateServer(true);
+                    }}
+                  >
+                    <div className="nc-arena-card-ico purple"><Plus size={22} /></div>
+                    <strong>Create a Squad Server</strong>
+                    <span>Pre-configured with #squad-chat-room, Live Arena &amp; Voice Lounge</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="nc-arena-action-card"
+                    onClick={() => {
+                      setCreateServerTab('join');
+                      setShowCreateServer(true);
+                    }}
+                  >
+                    <div className="nc-arena-card-ico green"><Compass size={22} /></div>
+                    <strong>Join via Invite or ID</strong>
+                    <span>Enter a Server ID or invite code shared by your teammates</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="nc-arena-action-card"
+                    onClick={() => {
+                      setViewMode('home');
+                      setFriendsTab('add');
+                    }}
+                  >
+                    <div className="nc-arena-card-ico yellow"><Users size={22} /></div>
+                    <strong>Find Friends &amp; DMs</strong>
+                    <span>Connect with friends by phone number or gamer tag</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -2074,6 +2701,7 @@ export function App() {
                 onToggleCamera={toggleCamera}
                 onToggleScreenShare={toggleScreenShare}
                 onHangup={hangupCall}
+                onMinimize={directCallExpanded ? () => setDirectCallExpanded(false) : undefined}
                 onInviteUser={(uid) => nexconn.inviteToCall([uid])}
                 onSetGameAudioVolume={setGameAudioVolume}
                 onSetGameAudioMode={setGameAudioMode}
@@ -2082,8 +2710,43 @@ export function App() {
 
             {/* Case D: Standard Text / Squad Chat Room / DM Chat */}
             {activeTarget && activeChannel?.type !== 'live' && !isViewingVoiceStage && (
-              <div className="nc-chat-stage">
-                <div className="nc-messages-scroll">
+              <div
+                className="nc-chat-stage"
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes('Files')) {
+                    e.preventDefault();
+                    if (!isDraggingFile) setIsDraggingFile(true);
+                  }
+                }}
+                onDragLeave={(e) => {
+                  if (e.currentTarget === e.target) setIsDraggingFile(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFile(false);
+                  const dropped = e.dataTransfer.files?.[0];
+                  if (dropped) uploadSingleFile(dropped);
+                }}
+              >
+                {isDraggingFile && (
+                  <div className="nc-dropzone-overlay" onClick={() => setIsDraggingFile(false)}>
+                    <div className="nc-dropzone-card">
+                      <Upload size={34} />
+                      <h4>Drop to Upload</h4>
+                      <p>Share instantly to {viewMode === 'home' && dmUser ? `@${dmUser.displayName}` : `#${activeChannel?.name}`}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  ref={messagesScrollRef}
+                  className="nc-messages-scroll"
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+                    setShowScrollBottom(dist > 280);
+                  }}
+                >
                   <div className="nc-welcome-header">
                     <div className="nc-welcome-ico">
                       {viewMode === 'home' && dmUser ? (
@@ -2100,13 +2763,15 @@ export function App() {
                     <p>
                       {viewMode === 'home' && dmUser
                         ? `This is the beginning of your direct message history with @${dmUser.username} via Nexconn Chat SDK.`
-                        : activeChannel?.topic || `This is the start of #${activeChannel?.name}.`}
+                        : activeChannel?.topic || `This is the start of #${activeChannel?.name}. Coordinate callouts, media, and squad plays here.`}
                     </p>
                   </div>
 
                   {activeMessages.map((m, idx) => {
                     const prev = activeMessages[idx - 1];
+                    const showDateSep = !prev || !isSameCalendarDay(prev.createdAt, m.createdAt);
                     const grouped =
+                      !showDateSep &&
                       prev &&
                       prev.senderId === m.senderId &&
                       m.createdAt - prev.createdAt < 300000 &&
@@ -2118,11 +2783,16 @@ export function App() {
                       .find(Boolean);
 
                     return (
-                      <div
-                        key={m.id}
-                        id={`msg-${m.id}`}
-                        className={`nc-msg-row ${grouped ? 'grouped' : ''} ${m.type === 'quickchat' ? 'quickchat' : ''} ${currentPins.some((p) => p.id === m.id) ? 'pinned-msg-row' : ''}`}
-                      >
+                      <React.Fragment key={m.id}>
+                        {showDateSep && (
+                          <div className="nc-date-divider">
+                            <span>{formatDateDivider(m.createdAt)}</span>
+                          </div>
+                        )}
+                        <div
+                          id={`msg-${m.id}`}
+                          className={`nc-msg-row ${grouped ? 'grouped' : ''} ${m.type === 'quickchat' ? 'quickchat' : ''} ${currentPins.some((p) => p.id === m.id) ? 'pinned-msg-row' : ''}`}
+                        >
                         {!grouped ? (
                           <Avatar
                             user={sender}
@@ -2320,10 +2990,41 @@ export function App() {
                           )}
                         </div>
                       </div>
+                      </React.Fragment>
                     );
                   })}
                   <div ref={messagesEndRef} />
                 </div>
+
+                {/* Floating Jump to Latest Pill */}
+                {showScrollBottom && (
+                  <button
+                    type="button"
+                    className="nc-jump-bottom-pill"
+                    onClick={() => {
+                      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      setShowScrollBottom(false);
+                    }}
+                  >
+                    <ArrowDown size={14} />
+                    <span>Jump to Latest</span>
+                  </button>
+                )}
+
+                {/* Inline Personal Call Banner (matches incoming/active floating card directly above composer) */}
+                {activeDirectCall && !isViewingVoiceStage && (
+                  <PersonalCallBanner
+                    call={activeDirectCall}
+                    me={me}
+                    users={users}
+                    micMuted={callState.micMuted}
+                    onAcceptAudio={() => acceptDirectCallSession(activeDirectCall, false)}
+                    onAcceptVideo={() => acceptDirectCallSession(activeDirectCall, true)}
+                    onDeclineOrEnd={hangupCall}
+                    onToggleMic={toggleMic}
+                    onExpandStage={() => setDirectCallExpanded(true)}
+                  />
+                )}
 
                 {/* In-Match Quick Chat Bar */}
                 <QuickChatBar
@@ -2334,7 +3035,9 @@ export function App() {
                 {/* Typing Indicator & Reply Preview */}
                 {typingUsers.length > 0 && (
                   <div className="nc-typing-bar">
-                    <span className="nc-typing-dots">•••</span>
+                    <span className="nc-typing-wave" aria-hidden="true">
+                      <i /><i /><i />
+                    </span>
                     <span>
                       <strong>{typingUsers.join(', ')}</strong> {typingUsers.length === 1 ? 'is' : 'are'} typing...
                     </span>
@@ -2343,18 +3046,21 @@ export function App() {
 
                 {replyTo && (
                   <div className="nc-reply-banner">
-                    <span>
-                      Replying to <strong>{users[replyTo.senderId]?.displayName || replyTo.senderId}</strong>:{' '}
-                      {replyTo.text}
-                    </span>
-                    <button type="button" className="nc-icon-btn sm" onClick={() => setReplyTo(null)}>
+                    <div className="nc-reply-banner-text">
+                      <CornerUpLeft size={13} style={{ color: 'var(--blurple)', flexShrink: 0 }} />
+                      <span>
+                        Replying to <strong>{users[replyTo.senderId]?.displayName || replyTo.senderId}</strong>:{' '}
+                        <em>{replyTo.text}</em>
+                      </span>
+                    </div>
+                    <button type="button" className="nc-icon-btn sm" onClick={() => setReplyTo(null)} title="Cancel Reply (Esc)">
                       <X size={14} />
                     </button>
                   </div>
                 )}
 
                 {/* Composer */}
-                <form className="nc-composer" onSubmit={handleSend}>
+                <form className={`nc-composer ${replyTo ? 'has-reply' : ''}`} onSubmit={handleSend}>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -2363,19 +3069,27 @@ export function App() {
                   />
                   <button
                     type="button"
-                    className="nc-icon-btn"
+                    className="nc-icon-btn nc-upload-trigger"
                     onClick={() => fileInputRef.current?.click()}
-                    title="Upload Image or File (Nexconn Helper)"
+                    title="Upload Image or File (or drag & drop)"
                   >
                     <ImagePlus size={20} />
                   </button>
-                  <input
+                  <textarea
+                    ref={composerTextareaRef}
+                    rows={1}
                     value={composerText}
-                    onChange={(e) => handleComposerChange(e.target.value)}
+                    onChange={(e) => handleComposerChange(e.target.value, e.currentTarget)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
                     placeholder={
                       viewMode === 'home' && dmUser
                         ? `Message @${dmUser.displayName}`
-                        : `Message #${activeChannel?.name || 'channel'} (try @everyone or Alt+1..5 for Quick Chat)`
+                        : `Message #${activeChannel?.name || 'channel'} • Shift+Enter for new line`
                     }
                   />
                   <div className="nc-composer-right">
@@ -2394,8 +3108,8 @@ export function App() {
                       onSelectGif={handleSendGif}
                       onSelectSticker={handleSendSticker}
                     />
-                    <button type="submit" className="nc-send-btn" disabled={!composerText.trim()}>
-                      <Send size={17} />
+                    <button type="submit" className={`nc-send-btn ${composerText.trim() ? 'ready' : ''}`} disabled={!composerText.trim()}>
+                      <Send size={16} />
                     </button>
                   </div>
                 </form>
@@ -2562,8 +3276,25 @@ export function App() {
           )}
         </div>
 
+        {/* Global Floating Personal Call Banner when outside a text/DM chat stage (e.g., Friends, Live, Empty Hub) */}
+        {activeDirectCall && !isViewingVoiceStage && !(activeTarget && activeChannel?.type !== 'live') && (
+          <div className="nc-global-call-dock">
+            <PersonalCallBanner
+              call={activeDirectCall}
+              me={me}
+              users={users}
+              micMuted={callState.micMuted}
+              onAcceptAudio={() => acceptDirectCallSession(activeDirectCall, false)}
+              onAcceptVideo={() => acceptDirectCallSession(activeDirectCall, true)}
+              onDeclineOrEnd={hangupCall}
+              onToggleMic={toggleMic}
+              onExpandStage={() => setDirectCallExpanded(true)}
+            />
+          </div>
+        )}
+
         {/* Mobile Active Voice Mini-Bar (when browsing text channels while connected to voice) */}
-        {callState.status !== 'idle' && !isViewingVoiceStage && (
+        {callState.status !== 'idle' && !activeDirectCall && !isViewingVoiceStage && (
           <div className="nc-mobile-voice-strip mobile-only">
             <div
               className="nc-mobile-voice-info"
@@ -2687,6 +3418,7 @@ export function App() {
 
       {showCreateServer && (
         <CreateServerModal
+          initialTab={createServerTab}
           onCreate={async (name, template) => {
             const { server } = await api.createServer(name, template);
             await runSync();
@@ -2812,7 +3544,7 @@ export function App() {
         />
       )}
 
-      {incomingCall && (
+      {!activeDirectCall && incomingCall && (
         <IncomingCallModal
           caller={users[incomingCall.callerId]}
           callerId={incomingCall.callerId}

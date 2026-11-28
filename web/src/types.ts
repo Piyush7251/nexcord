@@ -13,6 +13,7 @@ export interface User {
   createdAt: number;
   isBot?: boolean;
   isAdmin?: boolean;
+  phone?: string;
 }
 
 export interface RolePermissions {
@@ -154,6 +155,20 @@ export interface SquadLobbyState {
   ready: Record<string, boolean>;
 }
 
+export interface DirectCallSession {
+  callId: string;
+  callerId: string;
+  calleeId: string;
+  mediaType: 'audio' | 'video';
+  status: 'ringing' | 'connected';
+  createdAt: number;
+  answeredAt?: number | null;
+  isFriend?: boolean;
+  contactLabel?: string;
+  caller?: User | null;
+  callee?: User | null;
+}
+
 export interface SyncPayload {
   me: User;
   servers: Server[];
@@ -163,6 +178,7 @@ export interface SyncPayload {
   dms: string[];
   users: Record<string, User>;
   myVoice: { serverId: string; channelId: string } | null;
+  activeDirectCall?: DirectCallSession | null;
   squadState: Record<string, SquadLobbyState>;
   dmPins?: Record<string, PinnedMessageSnapshot[]>;
 }

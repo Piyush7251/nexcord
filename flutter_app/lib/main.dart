@@ -11,6 +11,7 @@ import 'models/models.dart';
 import 'services/api_service.dart';
 import 'services/nexconn_sdk_service.dart';
 import 'services/media_stream_service.dart';
+import 'services/contacts_service.dart';
 import 'widgets/squad_and_quickchat.dart';
 import 'widgets/live_stream_stage_view.dart';
 import 'widgets/voice_huddle_view.dart';
@@ -36,6 +37,34 @@ EmojiOnlyType getEmojiOnlyType(String text) {
   if (chars.length == 1) return EmojiOnlyType.single;
   if (chars.length <= 8) return EmojiOnlyType.multiple;
   return EmojiOnlyType.none;
+}
+
+String formatChatTime(int ts) {
+  final dt = DateTime.fromMillisecondsSinceEpoch(ts).toLocal();
+  final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+  final m = dt.minute.toString().padLeft(2, '0');
+  final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+  return '$h:$m $ampm';
+}
+
+bool isSameChatDay(int a, int b) {
+  final da = DateTime.fromMillisecondsSinceEpoch(a).toLocal();
+  final db = DateTime.fromMillisecondsSinceEpoch(b).toLocal();
+  return da.year == db.year && da.month == db.month && da.day == db.day;
+}
+
+String formatChatDateDivider(int ts) {
+  final dt = DateTime.fromMillisecondsSinceEpoch(ts).toLocal();
+  final now = DateTime.now();
+  if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+    return 'Today';
+  }
+  final yest = now.subtract(const Duration(days: 1));
+  if (dt.year == yest.year && dt.month == yest.month && dt.day == yest.day) {
+    return 'Yesterday';
+  }
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
 }
 
 void main() async {
@@ -70,17 +99,37 @@ class NexcordApp extends StatelessWidget {
       localizationsDelegates: NexconnChatUILocalizations.localizationsDelegates,
       supportedLocales: NexconnChatUILocalizations.supportedLocales,
       theme: ThemeData.dark(useMaterial3: true).copyWith(
-        scaffoldBackgroundColor: const Color(0xFF313338),
+        scaffoldBackgroundColor: const Color(0xFF2A2D35),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF5865F2),
           secondary: Color(0xFF23A55A),
-          surface: Color(0xFF2B2D31),
+          surface: Color(0xFF22242A),
           error: Color(0xFFF23F43),
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF313338),
+          backgroundColor: Color(0xFF22242A),
           elevation: 0,
+          scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: const Color(0xFF16171B),
+          indicatorColor: const Color(0x385865F2),
+          height: 64,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return TextStyle(
+              fontSize: 11.5,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? Colors.white : const Color(0xFF9097A3),
+            );
+          }),
+        ),
+        snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF18191F),
+          contentTextStyle: const TextStyle(color: Colors.white, fontSize: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       home: NexcordHome(engineProvider: engineProvider),
@@ -121,11 +170,19 @@ class _NexcordHomeState extends State<NexcordHome> {
   ReplyRef? _replyTo;
   final TextEditingController _msgCtrl = TextEditingController();
   final ScrollController _chatScroll = ScrollController();
+  bool _showScrollToBottom = false;
+  bool _hasComposerText = false;
+  final Set<String> _collapsedCategories = <String>{};
 
-  // Voice state
+  // Voice & Direct Call state
   String? _voiceServerId;
   String? _voiceChannelId;
   String? _voiceCallId;
+  DirectCallInfo? _directCall;
+  bool _directCallStageOpen = false;
+  String? _activeDirectMediaCallId;
+  Timer? _ringTimer;
+  Timer? _callElapsedTimer;
   bool _micMuted = false;
   bool _deafened = false;
   bool _cameraOn = false;
@@ -141,6 +198,20 @@ class _NexcordHomeState extends State<NexcordHome> {
     super.initState();
     _sdk.addListener(_onSdkUpdate);
     MediaStreamService.instance.addListener(_onMediaUpdate);
+    _msgCtrl.addListener(() {
+      final hasText = _msgCtrl.text.trim().isNotEmpty;
+      if (hasText != _hasComposerText && mounted) {
+        setState(() => _hasComposerText = hasText);
+      }
+    });
+    _chatScroll.addListener(() {
+      if (!_chatScroll.hasClients) return;
+      final dist = _chatScroll.position.maxScrollExtent - _chatScroll.offset;
+      final shouldShow = dist > 260;
+      if (shouldShow != _showScrollToBottom && mounted) {
+        setState(() => _showScrollToBottom = shouldShow);
+      }
+    });
     _boot();
   }
 
@@ -234,15 +305,24 @@ class _NexcordHomeState extends State<NexcordHome> {
     try {
       final res = await _api.sync();
       if (!mounted) return;
+      final prevDirect = _directCall;
+      final nextDirect = res.activeDirectCall;
       setState(() {
         _me = res.me;
         _servers = res.servers;
-        _users = res.users;
+        _users = Map<String, NexcordUser>.from(res.users);
+        if (nextDirect?.caller != null) {
+          _users[nextDirect!.caller!.id] = nextDirect.caller!;
+        }
+        if (nextDirect?.callee != null) {
+          _users[nextDirect!.callee!.id] = nextDirect.callee!;
+        }
         _friends = res.friends;
         _incoming = res.incoming;
         _dms = res.dms;
         _voiceServerId = res.voiceServerId;
         _voiceChannelId = res.voiceChannelId;
+        _directCall = nextDirect;
 
         if (_activeServerId.isEmpty || !_servers.any((s) => s.id == _activeServerId)) {
           _activeServerId = _servers.isNotEmpty ? _servers.first.id : '';
@@ -258,6 +338,71 @@ class _NexcordHomeState extends State<NexcordHome> {
       final meId = _me?.id ?? '';
       if (meId.isNotEmpty) {
         MediaStreamService.instance.configure(api: _api, currentUserId: meId);
+
+        // Ringtone / haptic feedback for incoming direct call
+        if (nextDirect != null && nextDirect.status == 'ringing' && nextDirect.calleeId == meId) {
+          if (_ringTimer == null) {
+            HapticFeedback.vibrate();
+            SystemSound.play(SystemSoundType.alert);
+            _ringTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+              if (!mounted) return;
+              HapticFeedback.vibrate();
+              SystemSound.play(SystemSoundType.alert);
+            });
+          }
+        } else {
+          _ringTimer?.cancel();
+          _ringTimer = null;
+        }
+
+        // Synchronize active 1:1 personal call with WebRTC MediaStreamService
+        if (nextDirect != null && nextDirect.status == 'connected') {
+          _callElapsedTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+            if (mounted) setState(() {});
+          });
+          final peerId = nextDirect.callerId == meId ? nextDirect.calleeId : nextDirect.callerId;
+          if (_activeDirectMediaCallId != nextDirect.callId) {
+            _activeDirectMediaCallId = nextDirect.callId;
+            if (mounted && !_directCallStageOpen) {
+              setState(() => _directCallStageOpen = true);
+            }
+            await MediaStreamService.instance.startVoiceSession(
+              callId: nextDirect.callId,
+              peerIds: [peerId],
+              micMuted: _micMuted,
+              deafened: _deafened,
+            );
+            if (nextDirect.mediaType == 'video' && !MediaStreamService.instance.isCameraActive) {
+              final hasCam = await _requestCameraPermission(showDialogOnDenied: false);
+              if (hasCam) {
+                await MediaStreamService.instance.startCamera(front: true);
+                if (mounted) {
+                  setState(() => _cameraOn = MediaStreamService.instance.isCameraActive);
+                }
+              }
+            }
+          } else {
+            await MediaStreamService.instance.syncActivePeers([peerId], callId: nextDirect.callId);
+          }
+        } else if (nextDirect == null && (prevDirect != null || _activeDirectMediaCallId != null)) {
+          _ringTimer?.cancel();
+          _ringTimer = null;
+          _callElapsedTimer?.cancel();
+          _callElapsedTimer = null;
+          _activeDirectMediaCallId = null;
+          if (mounted) {
+            setState(() {
+              _directCallStageOpen = false;
+              _micMuted = false;
+              _deafened = false;
+              _cameraOn = false;
+              _screenSharing = false;
+            });
+          }
+          if (_voiceServerId == null) {
+            await MediaStreamService.instance.stopVoiceSession();
+          }
+        }
 
         final liveCh = !_homeMode ? _activeChannel : null;
         if (liveCh != null && liveCh.type == 'live' && liveCh.live != null) {
@@ -487,6 +632,13 @@ class _NexcordHomeState extends State<NexcordHome> {
 
   Future<void> _logout() async {
     _pollTimer?.cancel();
+    _ringTimer?.cancel();
+    _ringTimer = null;
+    _callElapsedTimer?.cancel();
+    _callElapsedTimer = null;
+    if (_directCall != null) {
+      await _api.endDirectCall(_directCall!.callId, reason: 'hangup').catchError((_) {});
+    }
     await _leaveVoiceChannel();
     await _sdk.disconnect();
     await _api.logout();
@@ -498,6 +650,9 @@ class _NexcordHomeState extends State<NexcordHome> {
       _voiceServerId = null;
       _voiceChannelId = null;
       _voiceCallId = null;
+      _directCall = null;
+      _directCallStageOpen = false;
+      _activeDirectMediaCallId = null;
       _callEngine = null;
       _callSdkReady = false;
     });
@@ -549,6 +704,386 @@ class _NexcordHomeState extends State<NexcordHome> {
       await _selectChannel(targetServer, textCh);
     }
     await _syncNow(silent: true);
+  }
+
+  String _formatErr(Object e) =>
+      e.toString().replaceFirst(RegExp(r'^(ApiException\(\d+\): |Exception: )'), '');
+
+  bool get _isInTextOrDmChat =>
+      _section == 'chat' &&
+      !_directCallStageOpen &&
+      (_homeMode
+          ? _activeDmUserId.isNotEmpty
+          : (_activeServer != null &&
+              _activeChannel != null &&
+              _activeChannel!.type != 'voice' &&
+              _activeChannel!.type != 'live'));
+
+  Future<void> _startDirectCall({
+    String? targetUserId,
+    String? phone,
+    bool video = false,
+    String contactName = '',
+    bool rethrowError = false,
+  }) async {
+    final hasMic = await _requestMicPermission();
+    if (!hasMic) {
+      if (rethrowError) throw Exception('Microphone permission is required for calling.');
+      return;
+    }
+    if (video) {
+      final hasCam = await _requestCameraPermission();
+      if (!hasCam) {
+        if (rethrowError) throw Exception('Camera permission is required for video calling.');
+        return;
+      }
+    }
+
+    try {
+      if (_voiceServerId != null) {
+        await _leaveVoiceChannel();
+      }
+      final dc = await _api.startDirectCall(
+        targetUserId: targetUserId,
+        phone: phone,
+        mediaType: video ? 'video' : 'audio',
+        contactName: contactName,
+      );
+      if (!mounted) return;
+      setState(() {
+        _directCall = dc;
+        _directCallStageOpen = false;
+        _micMuted = false;
+        _deafened = false;
+        _cameraOn = video;
+        if (dc.callee != null) {
+          _users = Map<String, NexcordUser>.from(_users)..[dc.callee!.id] = dc.callee!;
+        }
+      });
+      _sdk.logVoiceAction('DirectCall.start', 'callId=${dc.callId} video=$video');
+    } catch (e) {
+      if (rethrowError) rethrow;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_formatErr(e))),
+        );
+      }
+    }
+  }
+
+  Future<void> _acceptDirectCall(DirectCallInfo call, {required bool asVideo}) async {
+    final hasMic = await _requestMicPermission();
+    if (!hasMic) return;
+    if (asVideo) {
+      final hasCam = await _requestCameraPermission();
+      if (!hasCam) return;
+    }
+
+    _ringTimer?.cancel();
+    _ringTimer = null;
+
+    try {
+      if (_voiceServerId != null) {
+        await _leaveVoiceChannel();
+      }
+      final accepted = await _api.acceptDirectCall(
+        call.callId,
+        mediaType: asVideo ? 'video' : 'audio',
+      );
+      final meId = _me?.id ?? '';
+      final peerId = accepted.callerId == meId ? accepted.calleeId : accepted.callerId;
+      _activeDirectMediaCallId = accepted.callId;
+      if (mounted) {
+        setState(() {
+          _directCall = accepted;
+          _directCallStageOpen = true;
+          _micMuted = false;
+          _deafened = false;
+          _users = Map<String, NexcordUser>.from(_users);
+          if (accepted.caller != null) _users[accepted.caller!.id] = accepted.caller!;
+          if (accepted.callee != null) _users[accepted.callee!.id] = accepted.callee!;
+        });
+      }
+      await MediaStreamService.instance.startVoiceSession(
+        callId: accepted.callId,
+        peerIds: [peerId],
+        micMuted: false,
+        deafened: false,
+      );
+      if (asVideo) {
+        await MediaStreamService.instance.startCamera(front: true);
+        if (mounted) {
+          setState(() => _cameraOn = MediaStreamService.instance.isCameraActive);
+        }
+      }
+      _sdk.logVoiceAction('DirectCall.accept', 'callId=${accepted.callId} video=$asVideo');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_formatErr(e))),
+        );
+      }
+    }
+  }
+
+  Future<void> _endDirectCall({String? reason}) async {
+    final dc = _directCall;
+    _ringTimer?.cancel();
+    _ringTimer = null;
+    _callElapsedTimer?.cancel();
+    _callElapsedTimer = null;
+    _activeDirectMediaCallId = null;
+
+    if (mounted) {
+      setState(() {
+        _directCall = null;
+        _directCallStageOpen = false;
+        _micMuted = false;
+        _deafened = false;
+        _cameraOn = false;
+        _screenSharing = false;
+      });
+    }
+
+    if (dc != null) {
+      final r = reason ?? (dc.status == 'ringing' && dc.calleeId == _me?.id ? 'declined' : 'hangup');
+      await _api.endDirectCall(dc.callId, reason: r).catchError((_) {});
+      _sdk.logVoiceAction('DirectCall.end', 'callId=${dc.callId} reason=$r');
+    }
+    if (_voiceServerId == null) {
+      await MediaStreamService.instance.stopVoiceSession();
+    }
+  }
+
+  Widget _buildDirectCallBanner(DirectCallInfo call) {
+    final meId = _me?.id ?? '';
+    final isCaller = call.callerId == meId;
+    final peerId = isCaller ? call.calleeId : call.callerId;
+    final peerUser = _users[peerId] ?? (isCaller ? call.callee : call.caller);
+    final displayName = (peerUser?.displayName.isNotEmpty == true)
+        ? peerUser!.displayName
+        : (call.contactLabel.isNotEmpty ? call.contactLabel : peerId);
+    final relationLabel = call.isFriend ? 'friend' : 'contact';
+    final isIncomingRinging = !isCaller && call.status == 'ringing';
+    final isOutgoingRinging = isCaller && call.status == 'ringing';
+    final isConnected = call.status == 'connected';
+    final isVideo = call.mediaType == 'video';
+
+    String subtitle;
+    if (isIncomingRinging) {
+      subtitle = 'Incoming ${isVideo ? 'video' : 'voice'} call';
+    } else if (isOutgoingRinging) {
+      subtitle = 'Calling $displayName...';
+    } else {
+      final base = call.answeredAt ?? call.createdAt ?? DateTime.now().millisecondsSinceEpoch;
+      final elapsed = ((DateTime.now().millisecondsSinceEpoch - base) ~/ 1000).clamp(0, 86400);
+      final mm = (elapsed ~/ 60).toString().padLeft(2, '0');
+      final ss = (elapsed % 60).toString().padLeft(2, '0');
+      subtitle = '${isVideo ? 'Video' : 'Voice'} call • $mm:$ss';
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111622),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isIncomingRinging
+              ? const Color(0x6B1FA855)
+              : isConnected
+                  ? const Color(0x595865F2)
+                  : Colors.white.withValues(alpha: 0.10),
+        ),
+        boxShadow: const [
+          BoxShadow(color: Color(0x7304070F), blurRadius: 20, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: isConnected ? () => setState(() => _directCallStageOpen = true) : null,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isIncomingRinging || isConnected
+                            ? const Color(0x991FA855)
+                            : Colors.white24,
+                        width: 2,
+                      ),
+                    ),
+                    child: CircleAvatar(
+                      radius: 19,
+                      backgroundColor: peerUser?.color ?? const Color(0xFF5865F2),
+                      child: Text(
+                        displayName.isNotEmpty ? displayName[0].toUpperCase() : 'F',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '$displayName, $relationLabel',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFF3F5FA),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF9BA5BC),
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (isIncomingRinging) ...[
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1FA855),
+                foregroundColor: Colors.white,
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                elevation: 0,
+              ),
+              onPressed: () => _acceptDirectCall(call, asVideo: isVideo),
+              icon: Icon(isVideo ? Icons.videocam_rounded : Icons.call_rounded, size: 16),
+              label: const Text('Join', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+            ),
+            if (isVideo) ...[
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _acceptDirectCall(call, asVideo: false),
+                borderRadius: BorderRadius.circular(99),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: const Color(0x2E1FA855),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0x611FA855)),
+                  ),
+                  child: const Icon(Icons.call_rounded, color: Color(0xFF57F287), size: 16),
+                ),
+              ),
+            ],
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => _endDirectCall(reason: 'declined'),
+              borderRadius: BorderRadius.circular(99),
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0x2EF23F43),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0x59F23F43)),
+                ),
+                child: const Icon(Icons.close_rounded, color: Color(0xFFFF6B6E), size: 17),
+              ),
+            ),
+          ] else if (isOutgoingRinging) ...[
+            InkWell(
+              onTap: () => _endDirectCall(reason: 'hangup'),
+              borderRadius: BorderRadius.circular(99),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: const Color(0x2EF23F43),
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: const Color(0x61F23F43)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.call_end_rounded, color: Color(0xFFFF7B7E), size: 15),
+                    SizedBox(width: 5),
+                    Text('Cancel', style: TextStyle(color: Color(0xFFFF7B7E), fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ),
+          ] else ...[
+            InkWell(
+              onTap: _toggleVoiceMic,
+              borderRadius: BorderRadius.circular(99),
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: _micMuted ? const Color(0x2EF23F43) : Colors.white.withValues(alpha: 0.07),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _micMuted ? const Color(0x59F23F43) : Colors.white.withValues(alpha: 0.12),
+                  ),
+                ),
+                child: Icon(
+                  _micMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                  color: _micMuted ? const Color(0xFFFF6B6E) : const Color(0xFFE4E8F3),
+                  size: 16,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => setState(() => _directCallStageOpen = true),
+              borderRadius: BorderRadius.circular(99),
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0x2E5865F2),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0x595865F2)),
+                ),
+                child: const Icon(Icons.open_in_full_rounded, color: Color(0xFFA9B2FF), size: 15),
+              ),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => _endDirectCall(reason: 'hangup'),
+              borderRadius: BorderRadius.circular(99),
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0x2EF23F43),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0x59F23F43)),
+                ),
+                child: const Icon(Icons.call_end_rounded, color: Color(0xFFFF6B6E), size: 16),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<void> _toggleVoiceMic() async {
@@ -648,6 +1183,8 @@ class _NexcordHomeState extends State<NexcordHome> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _ringTimer?.cancel();
+    _callElapsedTimer?.cancel();
     _sdk.removeListener(_onSdkUpdate);
     MediaStreamService.instance.removeListener(_onMediaUpdate);
     _msgCtrl.dispose();
@@ -658,9 +1195,60 @@ class _NexcordHomeState extends State<NexcordHome> {
   @override
   Widget build(BuildContext context) {
     if (!_booted) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF1E1F22),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF5865F2))),
+      return Scaffold(
+        backgroundColor: const Color(0xFF121318),
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(0, -0.25),
+              radius: 0.9,
+              colors: [Color(0xFF242A52), Color(0xFF121318)],
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF5865F2), Color(0xFF7C3AED)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x665865F2), blurRadius: 24, offset: Offset(0, 8)),
+                    ],
+                  ),
+                  child: const Icon(Icons.sports_esports_rounded, color: Colors.white, size: 38),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Nexcord',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.5),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Connecting to Nexconn Real-Time Edge...',
+                  style: TextStyle(fontSize: 12.5, color: Color(0xFF9097A3)),
+                ),
+                const SizedBox(height: 22),
+                const SizedBox(
+                  width: 140,
+                  child: LinearProgressIndicator(
+                    minHeight: 3.5,
+                    borderRadius: BorderRadius.all(Radius.circular(99)),
+                    backgroundColor: Colors.white12,
+                    color: Color(0xFF5865F2),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 
@@ -673,34 +1261,104 @@ class _NexcordHomeState extends State<NexcordHome> {
 
     final srv = _activeServer;
     final ch = _activeChannel;
+    final pinList = (!_homeMode && srv != null && ch != null) ? (srv.pins[ch.id] ?? const []) : const <Map<String, dynamic>>[];
 
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+        ),
         title: Row(
           children: [
             if (_section == 'chat' && !_homeMode && ch != null) ...[
-              Icon(
-                ch.type == 'voice'
-                    ? Icons.volume_up_rounded
-                    : ch.type == 'live'
-                        ? Icons.tv_rounded
-                        : Icons.tag_rounded,
-                size: 20,
-                color: ch.type == 'live' ? const Color(0xFFF23F43) : const Color(0xFF949BA4),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: ch.type == 'live' ? const Color(0x28F23F43) : Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  ch.type == 'voice'
+                      ? Icons.volume_up_rounded
+                      : ch.type == 'live'
+                          ? Icons.tv_rounded
+                          : Icons.tag_rounded,
+                  size: 18,
+                  color: ch.type == 'live' ? const Color(0xFFF23F43) : const Color(0xFFB5BAC1),
+                ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(ch.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold, letterSpacing: -0.2)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      ch.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+                    ),
+                    Text(
+                      ch.topic.isNotEmpty ? ch.topic : (srv?.name ?? 'Squad Channel'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF9097A3)),
+                    ),
+                  ],
+                ),
               ),
+            ] else if (_section == 'chat' && !_homeMode && srv == null) ...[
+              const Icon(Icons.sports_esports_rounded, size: 20, color: Color(0xFF5865F2)),
+              const SizedBox(width: 8),
+              const Text('Nexcord Arena', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold)),
             ] else if (_section == 'chat' && _homeMode && _activeDmUserId.isNotEmpty) ...[
-              const Icon(Icons.alternate_email_rounded, size: 19, color: Color(0xFF949BA4)),
-              const SizedBox(width: 8),
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 15,
+                    backgroundColor: _users[_activeDmUserId]?.color ?? const Color(0xFF5865F2),
+                    child: Text(
+                      (_users[_activeDmUserId]?.displayName ?? _activeDmUserId)[0].toUpperCase(),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: _users[_activeDmUserId]?.statusColor ?? const Color(0xFF80848E),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF22242A), width: 1.5),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  _users[_activeDmUserId]?.displayName ?? _activeDmUserId,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _users[_activeDmUserId]?.displayName ?? _activeDmUserId,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      _users[_activeDmUserId]?.customStatus.isNotEmpty == true
+                          ? _users[_activeDmUserId]!.customStatus
+                          : (_users[_activeDmUserId]?.status ?? 'offline'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF9097A3)),
+                    ),
+                  ],
                 ),
               ),
             ] else if (_section == 'friends') ...[
@@ -710,7 +1368,7 @@ class _NexcordHomeState extends State<NexcordHome> {
             ] else if (_section == 'voice') ...[
               const Icon(Icons.headset_mic_rounded, size: 20, color: Color(0xFF23A55A)),
               const SizedBox(width: 8),
-              const Text('Voice Channels', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold)),
+              const Text('Voice Lounges', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold)),
             ] else ...[
               const Icon(Icons.account_circle_rounded, size: 20, color: Color(0xFF5865F2)),
               const SizedBox(width: 8),
@@ -719,69 +1377,135 @@ class _NexcordHomeState extends State<NexcordHome> {
           ],
         ),
         actions: [
+          if (_section == 'chat' && !_homeMode && srv != null && ch != null && ch.type != 'voice' && ch.type != 'live')
+            IconButton(
+              icon: Badge(
+                isLabelVisible: pinList.isNotEmpty,
+                label: Text('${pinList.length}'),
+                backgroundColor: const Color(0xFF5865F2),
+                child: const Icon(Icons.push_pin_outlined, size: 20),
+              ),
+              tooltip: 'Pinned Messages',
+              onPressed: () => _showPinnedMessagesSheet(context, srv, ch),
+            ),
           if (_section == 'chat' && !_homeMode && srv != null)
             IconButton(
               icon: const Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF5865F2), size: 21),
               tooltip: 'Invite & Share Server',
               onPressed: () => _showShareServerSheet(context, srv),
             ),
-          if (_section == 'chat' && _homeMode && _activeDmUserId.isNotEmpty)
+          if (_section == 'chat' && _homeMode && _activeDmUserId.isNotEmpty) ...[
             IconButton(
               icon: const Icon(Icons.call_rounded, color: Color(0xFF23A55A)),
               tooltip: 'Voice Call',
-              onPressed: () {
-                _sdk.logVoiceAction('NCCall.startCall', '1-to-1 voice call -> $_activeDmUserId');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Calling ${_users[_activeDmUserId]?.displayName ?? _activeDmUserId} via Nexconn...')),
-                );
-              },
+              onPressed: () => _startDirectCall(targetUserId: _activeDmUserId, video: false),
             ),
-          if (_section == 'chat' && !_homeMode && srv != null) ...[
             IconButton(
-              icon: const Icon(Icons.settings_rounded),
-              tooltip: 'Server Settings',
-              onPressed: () => _showServerSettingsSheet(context, srv),
+              icon: const Icon(Icons.videocam_rounded, color: Color(0xFF8EA1FF)),
+              tooltip: 'Video Call',
+              onPressed: () => _startDirectCall(targetUserId: _activeDmUserId, video: true),
             ),
+          ],
+          if (_section == 'chat' && !_homeMode && srv != null)
             Builder(
               builder: (ctx) => IconButton(
-                icon: const Icon(Icons.people_alt_rounded),
+                icon: const Icon(Icons.group_rounded),
                 tooltip: 'Server Members',
                 onPressed: () => Scaffold.of(ctx).openEndDrawer(),
               ),
             ),
-          ],
         ],
       ),
       drawer: _buildLeftDrawer(context, srv),
       endDrawer: _buildMembersDrawer(context, srv),
-      body: _buildBody(srv, ch),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        child: KeyedSubtree(
+          key: ValueKey('$_section:$_homeMode:$_activeServerId:$_activeChannelId:$_activeDmUserId:$_directCallStageOpen:${_directCall?.callId ?? ''}'),
+          child: _buildBody(srv, ch),
+        ),
+      ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_directCall != null && !_directCallStageOpen && !_isInTextOrDmChat)
+            _buildDirectCallBanner(_directCall!),
           _buildActiveVoiceBar(srv),
-          BottomNavigationBar(
-            backgroundColor: const Color(0xFF1E1F22),
-            selectedItemColor: const Color(0xFF5865F2),
-            unselectedItemColor: const Color(0xFF949BA4),
-            type: BottomNavigationBarType.fixed,
-            currentIndex: _section == 'chat'
-                ? 0
-                : _section == 'friends'
-                    ? 1
-                    : _section == 'voice'
-                        ? 2
-                        : 3,
-            onTap: (idx) {
-              setState(() {
-                _section = ['chat', 'friends', 'voice', 'settings'][idx];
-              });
-            },
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.forum_rounded), label: 'Servers'),
-              BottomNavigationBarItem(icon: Icon(Icons.people_alt_rounded), label: 'Friends'),
-              BottomNavigationBarItem(icon: Icon(Icons.headset_mic_rounded), label: 'Voice'),
-              BottomNavigationBarItem(icon: Icon(Icons.account_circle_rounded), label: 'You'),
-            ],
+          Container(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.07))),
+            ),
+            child: NavigationBar(
+              selectedIndex: _section == 'chat'
+                  ? 0
+                  : _section == 'friends'
+                      ? 1
+                      : _section == 'voice'
+                          ? 2
+                          : 3,
+              onDestinationSelected: (idx) {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _directCallStageOpen = false;
+                  _section = ['chat', 'friends', 'voice', 'settings'][idx];
+                });
+              },
+              destinations: [
+                const NavigationDestination(
+                  icon: Icon(Icons.forum_outlined, color: Color(0xFF9097A3)),
+                  selectedIcon: Icon(Icons.forum_rounded, color: Colors.white),
+                  label: 'Arena',
+                ),
+                NavigationDestination(
+                  icon: Badge(
+                    isLabelVisible: _incoming.isNotEmpty,
+                    label: Text('${_incoming.length}'),
+                    backgroundColor: const Color(0xFFF23F43),
+                    child: const Icon(Icons.people_alt_outlined, color: Color(0xFF9097A3)),
+                  ),
+                  selectedIcon: Badge(
+                    isLabelVisible: _incoming.isNotEmpty,
+                    label: Text('${_incoming.length}'),
+                    backgroundColor: const Color(0xFFF23F43),
+                    child: const Icon(Icons.people_alt_rounded, color: Colors.white),
+                  ),
+                  label: 'Friends',
+                ),
+                NavigationDestination(
+                  icon: Badge(
+                    isLabelVisible: _voiceChannelId != null,
+                    smallSize: 8,
+                    backgroundColor: const Color(0xFF57F287),
+                    child: const Icon(Icons.headset_mic_outlined, color: Color(0xFF9097A3)),
+                  ),
+                  selectedIcon: const Icon(Icons.headset_mic_rounded, color: Colors.white),
+                  label: 'Voice',
+                ),
+                NavigationDestination(
+                  icon: CircleAvatar(
+                    radius: 11,
+                    backgroundColor: _me!.color,
+                    child: Text(
+                      _me!.displayName.isNotEmpty ? _me!.displayName[0].toUpperCase() : 'U',
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                  selectedIcon: Container(
+                    padding: const EdgeInsets.all(1.5),
+                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                    child: CircleAvatar(
+                      radius: 10.5,
+                      backgroundColor: _me!.color,
+                      child: Text(
+                        _me!.displayName.isNotEmpty ? _me!.displayName[0].toUpperCase() : 'U',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  label: 'You',
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -998,22 +1722,80 @@ class _NexcordHomeState extends State<NexcordHome> {
                             }).toList(),
                           )
                         : srv == null
-                            ? const SizedBox.shrink()
+                            ? Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.sports_esports_rounded, size: 36, color: Color(0xFF5865F2)),
+                                    const SizedBox(height: 10),
+                                    const Text(
+                                      'No server selected yet',
+                                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    const Text(
+                                      'Create a gaming server or join with an invite code.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(fontSize: 12, color: Color(0xFF9097A3)),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF5865F2),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () {
+                                        Navigator.pop(context);
+                                        _showCreateServerDialog(context);
+                                      },
+                                      icon: const Icon(Icons.add_rounded, size: 16),
+                                      label: const Text('Create Server', style: TextStyle(fontSize: 12.5)),
+                                    ),
+                                  ],
+                                ),
+                              )
                             : ListView(
                                 padding: const EdgeInsets.all(8),
                                 children: srv.categories.map((cat) {
                                   final chs = srv.channels.where((c) => c.categoryId == cat.id).toList();
+                                  final collapsed = _collapsedCategories.contains(cat.id);
                                   return Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(6, 10, 6, 4),
-                                        child: Text(
-                                          cat.name.toUpperCase(),
-                                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF949BA4)),
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(4),
+                                        onTap: () {
+                                          setState(() {
+                                            if (collapsed) {
+                                              _collapsedCategories.remove(cat.id);
+                                            } else {
+                                              _collapsedCategories.add(cat.id);
+                                            }
+                                          });
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.fromLTRB(4, 10, 6, 4),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                collapsed ? Icons.chevron_right_rounded : Icons.expand_more_rounded,
+                                                size: 15,
+                                                color: const Color(0xFF9097A3),
+                                              ),
+                                              const SizedBox(width: 2),
+                                              Expanded(
+                                                child: Text(
+                                                  cat.name.toUpperCase(),
+                                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.4, color: Color(0xFF9097A3)),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                      ...chs.map((c) {
+                                      if (!collapsed)
+                                        ...chs.map((c) {
                                         final act = !_homeMode && c.id == _activeChannelId && _section == 'chat';
                                         final vMembers = srv.voiceStates[c.id] ?? [];
                                         return Column(
@@ -1131,20 +1913,46 @@ class _NexcordHomeState extends State<NexcordHome> {
   }
 
   Widget _railButton({required bool active, required Color color, required VoidCallback onTap, required Widget child}) {
-    return Center(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(active ? 14 : 24),
-        child: Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: active ? color : const Color(0xFF313338),
-            borderRadius: BorderRadius.circular(active ? 14 : 24),
+    return SizedBox(
+      height: 48,
+      width: 68,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            left: 0,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: active ? 4 : 0,
+              height: active ? 34 : 0,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.horizontal(right: Radius.circular(4)),
+              ),
+            ),
           ),
-          alignment: Alignment.center,
-          child: child,
-        ),
+          InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            borderRadius: BorderRadius.circular(active ? 14 : 24),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: active ? color : const Color(0xFF2A2D35),
+                borderRadius: BorderRadius.circular(active ? 14 : 24),
+                boxShadow: active
+                    ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 10, offset: const Offset(0, 3))]
+                    : null,
+              ),
+              alignment: Alignment.center,
+              child: child,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1236,6 +2044,89 @@ class _NexcordHomeState extends State<NexcordHome> {
   }
 
   Widget _buildBody(NexcordServer? srv, NexcordChannel? ch) {
+    if (_directCallStageOpen && _directCall != null) {
+      final dc = _directCall!;
+      final meId = _me!.id;
+      final peerId = dc.callerId == meId ? dc.calleeId : dc.callerId;
+      final peerUser = _users[peerId] ?? (dc.callerId == meId ? dc.callee : dc.caller);
+      final peerName = (peerUser?.displayName.isNotEmpty == true)
+          ? peerUser!.displayName
+          : (dc.contactLabel.isNotEmpty ? dc.contactLabel : peerId);
+      final relation = dc.isFriend ? 'friend' : 'contact';
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF111622),
+              border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  dc.mediaType == 'video' ? Icons.videocam_rounded : Icons.call_rounded,
+                  size: 16,
+                  color: const Color(0xFF57F287),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '$peerName, $relation',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
+                  ),
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.white.withValues(alpha: 0.08),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () => setState(() => _directCallStageOpen = false),
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
+                  label: const Text('Back to Chat', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: VoiceHuddleView(
+              channelName: '$peerName ($relation)',
+              callId: dc.callId,
+              me: _me!,
+              users: _users,
+              participants: [
+                VoiceParticipant(
+                  userId: meId,
+                  muted: _micMuted,
+                  deafened: _deafened,
+                  video: _cameraOn,
+                  streaming: _screenSharing,
+                ),
+                VoiceParticipant(
+                  userId: peerId,
+                  video: dc.mediaType == 'video',
+                ),
+              ],
+              micMuted: _micMuted,
+              deafened: _deafened,
+              cameraOn: _cameraOn,
+              screenSharing: _screenSharing,
+              onToggleMic: _toggleVoiceMic,
+              onToggleDeafen: _toggleVoiceDeafen,
+              onToggleCamera: _toggleVoiceCamera,
+              onToggleScreenShare: _toggleScreenShare,
+              onHangup: () => _endDirectCall(reason: 'hangup'),
+            ),
+          ),
+        ],
+      );
+    }
+
     if (_section == 'friends') {
       return _FriendsHub(
         friends: _friends,
@@ -1243,6 +2134,7 @@ class _NexcordHomeState extends State<NexcordHome> {
         dms: _dms,
         users: _users,
         me: _me!,
+        api: _api,
         onAccept: (uid) async {
           await _api.acceptFriend(uid);
           await _syncNow();
@@ -1266,6 +2158,16 @@ class _NexcordHomeState extends State<NexcordHome> {
           });
           await _loadMessages();
         },
+        onCallUser: (uid, video, {contactName}) => _startDirectCall(
+          targetUserId: uid,
+          video: video,
+          contactName: contactName ?? '',
+        ),
+        onCallPhone: (phone, video) => _startDirectCall(
+          phone: phone,
+          video: video,
+          rethrowError: true,
+        ),
       );
     }
 
@@ -1324,228 +2226,484 @@ class _NexcordHomeState extends State<NexcordHome> {
       );
     }
 
+    // Zero-Server Mobile Onboarding Hub
+    if (!_homeMode && srv == null) {
+      return Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0x265865F2),
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: const Color(0x665865F2)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.auto_awesome_rounded, size: 13, color: Color(0xFFA5B4FC)),
+                    SizedBox(width: 6),
+                    Text(
+                      'WELCOME TO NEXCORD ARENA',
+                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFFA5B4FC), letterSpacing: 0.5),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Launch Your Squad Hub',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.4),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Create a gaming server with tactical radar pings, 60 FPS live streams, and voice huddles — or join an existing squad.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13.5, color: Color(0xFF9097A3), height: 1.45),
+              ),
+              const SizedBox(height: 22),
+              _buildArenaOnboardingCard(
+                icon: Icons.add_box_rounded,
+                iconBg: const Color(0x285865F2),
+                iconColor: const Color(0xFF8EA1FF),
+                title: 'Create a Squad Server',
+                subtitle: 'Includes #squad-chat-room, Live Stage & Voice Lounge',
+                highlight: true,
+                onTap: () => _showCreateServerDialog(context),
+              ),
+              const SizedBox(height: 12),
+              _buildArenaOnboardingCard(
+                icon: Icons.explore_rounded,
+                iconBg: const Color(0x2823A55A),
+                iconColor: const Color(0xFF57F287),
+                title: 'Join via Invite or ID',
+                subtitle: 'Paste a Server ID or invite code from your squadmates',
+                onTap: () => _showJoinServerDialog(context),
+              ),
+              const SizedBox(height: 12),
+              _buildArenaOnboardingCard(
+                icon: Icons.people_alt_rounded,
+                iconBg: const Color(0x28F0B232),
+                iconColor: const Color(0xFFFFD166),
+                title: 'Find Friends & DMs',
+                subtitle: 'Connect 1-on-1 with friends by username',
+                onTap: () => setState(() => _section = 'friends'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     // Standard Text / Squad Chat / DM View
     return Column(
       children: [
         Expanded(
-          child: ListView.builder(
-            controller: _chatScroll,
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-            itemCount: _messages.length,
-            itemBuilder: (_, i) {
-              final m = _messages[i];
-              final u = m.senderId == _me!.id ? _me! : _users[m.senderId];
-              return GestureDetector(
-                onLongPress: () => _showMessageActions(m),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: m.type == 'quickchat' ? const EdgeInsets.only(left: 8) : EdgeInsets.zero,
-                  decoration: m.type == 'quickchat'
-                      ? const BoxDecoration(border: Border(left: BorderSide(color: Color(0xFF5865F2), width: 3)))
-                      : null,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CircleAvatar(
-                        radius: 17,
-                        backgroundColor: u?.color ?? const Color(0xFF5865F2),
-                        child: Text(
-                          (u?.displayName ?? m.senderId)[0].toUpperCase(),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          child: Stack(
+            children: [
+              RefreshIndicator(
+                color: const Color(0xFF5865F2),
+                backgroundColor: const Color(0xFF22242A),
+                onRefresh: () => _loadMessages(),
+                child: ListView.builder(
+                  controller: _chatScroll,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  itemCount: _messages.length + 1,
+                  itemBuilder: (_, idx) {
+                    if (idx == 0) {
+                      final dmUser = _homeMode ? _users[_activeDmUserId] : null;
+                      return Container(
+                        padding: const EdgeInsets.fromLTRB(4, 10, 4, 18),
+                        margin: const EdgeInsets.only(bottom: 10),
+                        decoration: BoxDecoration(
+                          border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.07))),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (m.replyTo != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 2),
-                                child: Text(
-                                  '↩ ${_users[m.replyTo!.senderId]?.displayName ?? m.replyTo!.senderId}: ${m.replyTo!.text}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF949BA4)),
-                                ),
+                            Container(
+                              width: 54,
+                              height: 54,
+                              decoration: BoxDecoration(
+                                color: dmUser != null ? dmUser.color : const Color(0xFF343741),
+                                shape: BoxShape.circle,
                               ),
-                            Wrap(
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 6,
+                              alignment: Alignment.center,
+                              child: dmUser != null
+                                  ? Text(
+                                      dmUser.displayName[0].toUpperCase(),
+                                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.tag_rounded, size: 28, color: Colors.white),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              dmUser != null ? dmUser.displayName : 'Welcome to #${ch?.name ?? "channel"}!',
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.3),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              dmUser != null
+                                  ? 'Direct conversation with @${dmUser.username} powered by Nexconn SDK.'
+                                  : (ch?.topic.isNotEmpty == true ? ch!.topic : 'Start of #${ch?.name ?? "channel"}. Swipe right on any message to reply, or long-press for actions.'),
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF9097A3), height: 1.4),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    final i = idx - 1;
+                    final m = _messages[i];
+                    final prev = i > 0 ? _messages[i - 1] : null;
+                    final showDateSep = prev == null || !isSameChatDay(prev.createdAt, m.createdAt);
+                    final grouped = !showDateSep &&
+                        prev.senderId == m.senderId &&
+                        (m.createdAt - prev.createdAt) < 300000 &&
+                        m.replyTo == null;
+                    final u = m.senderId == _me!.id ? _me! : _users[m.senderId];
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (showDateSep)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
                               children: [
-                                Text(
-                                  u?.displayName ?? m.senderId,
-                                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: u?.color ?? Colors.white),
+                                Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08), height: 1)),
+                                Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(99),
+                                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                                  ),
+                                  child: Text(
+                                    formatChatDateDivider(m.createdAt),
+                                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF9097A3)),
+                                  ),
                                 ),
-                                if (u?.isBot == true)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                    decoration: BoxDecoration(color: const Color(0xFF5865F2), borderRadius: BorderRadius.circular(3)),
-                                    child: const Text('SQUAD', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
-                                  ),
-                                if (m.type == 'quickchat')
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                    decoration: BoxDecoration(color: const Color(0x2857F287), borderRadius: BorderRadius.circular(3)),
-                                    child: Text(
-                                      m.metadata?['badge']?.toString() ?? 'QUICK CHAT',
-                                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF57F287)),
-                                    ),
-                                  ),
+                                Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.08), height: 1)),
                               ],
                             ),
-                            const SizedBox(height: 2),
-                            if (m.type == 'gif' || (m.text.startsWith('http') && m.text.contains('.gif')))
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4, bottom: 2),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    constraints: const BoxConstraints(maxWidth: 240, maxHeight: 180),
-                                    color: const Color(0xFF1E1F22),
-                                    child: Builder(builder: (_) {
-                                      final rawUrl = (m.metadata?['url'] as String?) ?? m.text;
-                                      final isHttp = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
-                                      if (!isHttp) {
-                                        return const Padding(
-                                          padding: EdgeInsets.all(12),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.gif_box_rounded, size: 20, color: Color(0xFF5865F2)),
-                                              SizedBox(width: 6),
-                                              Text('GIF Animation', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                                            ],
+                          ),
+                        Dismissible(
+                          key: ValueKey('swipe_${m.id}'),
+                          direction: DismissDirection.startToEnd,
+                          dismissThresholds: const {DismissDirection.startToEnd: 0.22},
+                          confirmDismiss: (_) async {
+                            HapticFeedback.lightImpact();
+                            setState(() => _replyTo = ReplyRef(id: m.id, senderId: m.senderId, text: m.text));
+                            return false;
+                          },
+                          background: Container(
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: const Color(0x385865F2),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFF5865F2)),
+                              ),
+                              child: const Icon(Icons.reply_rounded, size: 16, color: Colors.white),
+                            ),
+                          ),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onLongPress: () {
+                              HapticFeedback.mediumImpact();
+                              _showMessageActions(m);
+                            },
+                            child: Container(
+                              margin: EdgeInsets.only(bottom: grouped ? 3 : 8, top: grouped ? 0 : 3),
+                              padding: m.type == 'quickchat' ? const EdgeInsets.only(left: 8, top: 3, bottom: 3) : EdgeInsets.zero,
+                              decoration: m.type == 'quickchat'
+                                  ? BoxDecoration(
+                                      color: const Color(0x125865F2),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: const Border(left: BorderSide(color: Color(0xFF5865F2), width: 3)),
+                                    )
+                                  : null,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (!grouped)
+                                    CircleAvatar(
+                                      radius: 17,
+                                      backgroundColor: u?.color ?? const Color(0xFF5865F2),
+                                      child: Text(
+                                        (u?.displayName ?? m.senderId)[0].toUpperCase(),
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                      ),
+                                    )
+                                  else
+                                    const SizedBox(width: 34),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        if (m.replyTo != null)
+                                          Container(
+                                            margin: const EdgeInsets.only(bottom: 3),
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(alpha: 0.04),
+                                              borderRadius: BorderRadius.circular(5),
+                                              border: const Border(left: BorderSide(color: Color(0xFF5865F2), width: 2)),
+                                            ),
+                                            child: Text(
+                                              '↩ ${_users[m.replyTo!.senderId]?.displayName ?? m.replyTo!.senderId}: ${m.replyTo!.text}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(fontSize: 11.5, color: Color(0xFF9097A3)),
+                                            ),
                                           ),
-                                        );
-                                      }
-                                      return Image.network(
-                                        rawUrl,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => const Padding(
-                                          padding: EdgeInsets.all(12),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
+                                        if (!grouped) ...[
+                                          Wrap(
+                                            crossAxisAlignment: WrapCrossAlignment.center,
+                                            spacing: 6,
                                             children: [
-                                              Icon(Icons.broken_image, size: 18, color: Colors.grey),
-                                              SizedBox(width: 6),
-                                              Text('GIF unavailable', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    }),
-                                  ),
-                                ),
-                              )
-                            else if (m.type == 'sticker')
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4, bottom: 2),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Container(
-                                    width: 110,
-                                    height: 110,
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0x1F5865F2),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Builder(builder: (_) {
-                                      final rawUrl = (m.metadata?['url'] as String?) ?? m.text;
-                                      final isHttp = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
-                                      if (!isHttp) {
-                                        return Center(
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(Icons.sticky_note_2_rounded, color: Color(0xFF5865F2), size: 36),
-                                              const SizedBox(height: 4),
                                               Text(
-                                                (m.metadata?['name'] as String?) ?? m.text,
-                                                style: const TextStyle(fontSize: 10, color: Colors.white70),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
+                                                u?.displayName ?? m.senderId,
+                                                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: u?.color ?? Colors.white),
+                                              ),
+                                              if (u?.isBot == true)
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                  decoration: BoxDecoration(color: const Color(0xFF5865F2), borderRadius: BorderRadius.circular(3)),
+                                                  child: const Text('SQUAD', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+                                                ),
+                                              if (m.type == 'quickchat')
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                  decoration: BoxDecoration(color: const Color(0x2857F287), borderRadius: BorderRadius.circular(3)),
+                                                  child: Text(
+                                                    m.metadata?['badge']?.toString() ?? 'QUICK CHAT',
+                                                    style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF57F287)),
+                                                  ),
+                                                ),
+                                              Text(
+                                                formatChatTime(m.createdAt),
+                                                style: const TextStyle(fontSize: 10.5, color: Color(0xFF9097A3)),
                                               ),
                                             ],
                                           ),
-                                        );
-                                      }
-                                      return Image.network(
-                                        rawUrl,
-                                        fit: BoxFit.contain,
-                                        errorBuilder: (_, __, ___) => const Center(
-                                          child: Icon(Icons.broken_image, color: Colors.grey),
-                                        ),
-                                      );
-                                    }),
-                                  ),
-                                ),
-                              )
-                            else
-                              Builder(builder: (_) {
-                                final emojiType = getEmojiOnlyType(m.text);
-                                final double fontSize = emojiType == EmojiOnlyType.single
-                                    ? 44.0
-                                    : emojiType == EmojiOnlyType.multiple
-                                        ? 28.0
-                                        : 14.5;
-                                final double height = emojiType == EmojiOnlyType.single
-                                    ? 1.15
-                                    : emojiType == EmojiOnlyType.multiple
-                                        ? 1.25
-                                        : 1.35;
-                                return Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    vertical: emojiType == EmojiOnlyType.single
-                                        ? 4.0
-                                        : (emojiType == EmojiOnlyType.multiple ? 2.0 : 0.0),
-                                  ),
-                                  child: Text(
-                                    m.text,
-                                    style: TextStyle(
-                                      fontSize: fontSize,
-                                      height: height,
-                                      letterSpacing: emojiType == EmojiOnlyType.multiple ? 2.0 : null,
-                                      color: const Color(0xFFDBDEE1),
+                                          const SizedBox(height: 2),
+                                        ],
+                                        if (m.type == 'gif' || (m.text.startsWith('http') && m.text.contains('.gif')))
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 4, bottom: 2),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(10),
+                                              child: Container(
+                                                constraints: const BoxConstraints(maxWidth: 240, maxHeight: 180),
+                                                color: const Color(0xFF16171B),
+                                                child: Builder(builder: (_) {
+                                                  final rawUrl = (m.metadata?['url'] as String?) ?? m.text;
+                                                  final isHttp = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
+                                                  if (!isHttp) {
+                                                    return const Padding(
+                                                      padding: EdgeInsets.all(12),
+                                                      child: Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          Icon(Icons.gif_box_rounded, size: 20, color: Color(0xFF5865F2)),
+                                                          SizedBox(width: 6),
+                                                          Text('GIF Animation', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                                        ],
+                                                      ),
+                                                    );
+                                                  }
+                                                  return Image.network(
+                                                    rawUrl,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __, ___) => const Padding(
+                                                      padding: EdgeInsets.all(12),
+                                                      child: Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          Icon(Icons.broken_image, size: 18, color: Colors.grey),
+                                                          SizedBox(width: 6),
+                                                          Text('GIF unavailable', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  );
+                                                }),
+                                              ),
+                                            ),
+                                          )
+                                        else if (m.type == 'sticker')
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 4, bottom: 2),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: Container(
+                                                width: 110,
+                                                height: 110,
+                                                padding: const EdgeInsets.all(8),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0x1F5865F2),
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Builder(builder: (_) {
+                                                  final rawUrl = (m.metadata?['url'] as String?) ?? m.text;
+                                                  final isHttp = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
+                                                  if (!isHttp) {
+                                                    return Center(
+                                                      child: Column(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          const Icon(Icons.sticky_note_2_rounded, color: Color(0xFF5865F2), size: 36),
+                                                          const SizedBox(height: 4),
+                                                          Text(
+                                                            (m.metadata?['name'] as String?) ?? m.text,
+                                                            style: const TextStyle(fontSize: 10, color: Colors.white70),
+                                                            maxLines: 1,
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                  }
+                                                  return Image.network(
+                                                    rawUrl,
+                                                    fit: BoxFit.contain,
+                                                    errorBuilder: (_, __, ___) => const Center(
+                                                      child: Icon(Icons.broken_image, color: Colors.grey),
+                                                    ),
+                                                  );
+                                                }),
+                                              ),
+                                            ),
+                                          )
+                                        else
+                                          Builder(builder: (_) {
+                                            final emojiType = getEmojiOnlyType(m.text);
+                                            final double fontSize = emojiType == EmojiOnlyType.single
+                                                ? 44.0
+                                                : emojiType == EmojiOnlyType.multiple
+                                                    ? 28.0
+                                                    : 14.5;
+                                            final double height = emojiType == EmojiOnlyType.single
+                                                ? 1.15
+                                                : emojiType == EmojiOnlyType.multiple
+                                                    ? 1.25
+                                                    : 1.38;
+                                            return Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                vertical: emojiType == EmojiOnlyType.single
+                                                    ? 4.0
+                                                    : (emojiType == EmojiOnlyType.multiple ? 2.0 : 0.0),
+                                              ),
+                                              child: RichText(
+                                                text: TextSpan(
+                                                  style: TextStyle(
+                                                    fontSize: fontSize,
+                                                    height: height,
+                                                    letterSpacing: emojiType == EmojiOnlyType.multiple ? 2.0 : null,
+                                                    color: const Color(0xFFE3E5E8),
+                                                  ),
+                                                  children: [
+                                                    TextSpan(text: m.text),
+                                                    if (m.editedAt != null)
+                                                      const TextSpan(
+                                                        text: '  (edited)',
+                                                        style: TextStyle(fontSize: 10.5, color: Color(0xFF9097A3), letterSpacing: 0),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          }),
+                                        if (m.reactions.isNotEmpty) ...[
+                                          const SizedBox(height: 5),
+                                          Wrap(
+                                            spacing: 5,
+                                            runSpacing: 4,
+                                            children: m.reactions.entries.map((e) {
+                                              final mine = e.value.contains(_me!.id);
+                                              return InkWell(
+                                                borderRadius: BorderRadius.circular(8),
+                                                onTap: () async {
+                                                  HapticFeedback.selectionClick();
+                                                  await _api.reactMessage(_targetKey, m.id, e.key);
+                                                  await _loadMessages();
+                                                },
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                  decoration: BoxDecoration(
+                                                    color: mine ? const Color(0x385865F2) : const Color(0xFF22242A),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    border: Border.all(
+                                                      color: mine ? const Color(0xFF5865F2) : Colors.white.withValues(alpha: 0.08),
+                                                    ),
+                                                  ),
+                                                  child: Text('${e.key} ${e.value.length}', style: const TextStyle(fontSize: 12)),
+                                                ),
+                                              );
+                                            }).toList(),
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
-                                );
-                              }),
-                            if (m.reactions.isNotEmpty) ...[
-                              const SizedBox(height: 5),
-                              Wrap(
-                                spacing: 5,
-                                children: m.reactions.entries.map((e) {
-                                  final mine = e.value.contains(_me!.id);
-                                  return InkWell(
-                                    onTap: () async {
-                                      await _api.reactMessage(_targetKey, m.id, e.key);
-                                      await _loadMessages();
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: mine ? const Color(0x385865F2) : const Color(0xFF2B2D31),
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: mine ? const Color(0xFF5865F2) : Colors.transparent),
-                                      ),
-                                      child: Text('${e.key} ${e.value.length}', style: const TextStyle(fontSize: 12)),
-                                    ),
-                                  );
-                                }).toList(),
+                                ],
                               ),
-                            ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              if (_showScrollToBottom)
+                Positioned(
+                  bottom: 10,
+                  right: 14,
+                  child: Material(
+                    color: const Color(0xEE18191F),
+                    shape: StadiumBorder(side: BorderSide(color: const Color(0xFF5865F2).withValues(alpha: 0.65))),
+                    elevation: 6,
+                    child: InkWell(
+                      customBorder: const StadiumBorder(),
+                      onTap: () {
+                        if (_chatScroll.hasClients) {
+                          _chatScroll.animateTo(
+                            _chatScroll.position.maxScrollExtent,
+                            duration: const Duration(milliseconds: 260),
+                            curve: Curves.easeOutCubic,
+                          );
+                        }
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.arrow_downward_rounded, size: 15, color: Color(0xFF8EA1FF)),
+                            SizedBox(width: 5),
+                            Text('Latest', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              );
-            },
+            ],
           ),
         ),
+        if (_directCall != null) _buildDirectCallBanner(_directCall!),
         QuickChatStripWidget(
           onSendQuickChat: (preset, {zone}) {
             final txt = zone != null ? '${preset.text} [$zone]' : preset.text;
@@ -1554,30 +2712,47 @@ class _NexcordHomeState extends State<NexcordHome> {
         ),
         if (_replyTo != null)
           Container(
-            color: const Color(0xFF2B2D31),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            margin: const EdgeInsets.fromLTRB(8, 2, 8, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1D1F25),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+              border: Border(left: BorderSide(color: Color(0xFF5865F2), width: 3)),
+            ),
             child: Row(
               children: [
+                const Icon(Icons.reply_rounded, size: 15, color: Color(0xFF5865F2)),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Replying to ${_users[_replyTo!.senderId]?.displayName ?? _replyTo!.senderId}',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFFB5BAC1)),
+                    'Replying to ${_users[_replyTo!.senderId]?.displayName ?? _replyTo!.senderId}: ${_replyTo!.text}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: Color(0xFFBEC3CC)),
                   ),
                 ),
-                InkWell(onTap: () => setState(() => _replyTo = null), child: const Icon(Icons.close, size: 16)),
+                InkWell(
+                  onTap: () => setState(() => _replyTo = null),
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(Icons.close_rounded, size: 16, color: Color(0xFF9097A3)),
+                  ),
+                ),
               ],
             ),
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               IconButton(
                 style: IconButton.styleFrom(
-                  backgroundColor: const Color(0xFF383A40),
-                  padding: const EdgeInsets.all(8),
+                  backgroundColor: const Color(0xFF343741),
+                  padding: const EdgeInsets.all(9),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFFB5BAC1), size: 22),
+                icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFFBEC3CC), size: 22),
                 tooltip: 'Emojis, GIFs & Stickers',
                 onPressed: _openMediaPicker,
               ),
@@ -1585,34 +2760,103 @@ class _NexcordHomeState extends State<NexcordHome> {
               Expanded(
                 child: TextField(
                   controller: _msgCtrl,
+                  minLines: 1,
+                  maxLines: 4,
+                  textInputAction: TextInputAction.send,
                   decoration: InputDecoration(
                     hintText: _homeMode ? 'Message @${_users[_activeDmUserId]?.displayName ?? "user"}' : 'Message #${ch?.name ?? "channel"}',
+                    hintStyle: const TextStyle(color: Color(0xFF9097A3), fontSize: 14),
                     filled: true,
-                    fillColor: const Color(0xFF383A40),
+                    fillColor: const Color(0xFF343741),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
                   ),
                   onSubmitted: (v) {
+                    if (v.trim().isEmpty) return;
                     _msgCtrl.clear();
                     _sendText(v);
                   },
                 ),
               ),
               const SizedBox(width: 6),
-              IconButton(
-                style: IconButton.styleFrom(backgroundColor: const Color(0xFF5865F2)),
-                onPressed: () {
-                  final v = _msgCtrl.text;
-                  _msgCtrl.clear();
-                  _sendText(v);
-                },
-                icon: const Icon(Icons.send, color: Colors.white, size: 19),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                decoration: BoxDecoration(
+                  color: _hasComposerText ? const Color(0xFF5865F2) : const Color(0xFF343741),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: _hasComposerText
+                      ? const [BoxShadow(color: Color(0x555865F2), blurRadius: 10, offset: Offset(0, 3))]
+                      : null,
+                ),
+                child: IconButton(
+                  onPressed: _hasComposerText
+                      ? () {
+                          HapticFeedback.lightImpact();
+                          final v = _msgCtrl.text;
+                          _msgCtrl.clear();
+                          _sendText(v);
+                        }
+                      : null,
+                  icon: Icon(
+                    Icons.send_rounded,
+                    color: _hasComposerText ? Colors.white : const Color(0xFF6D727E),
+                    size: 19,
+                  ),
+                ),
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildArenaOnboardingCard({
+    required IconData icon,
+    required Color iconBg,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool highlight = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: highlight ? const Color(0x1E5865F2) : const Color(0xFF22242A),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: highlight ? const Color(0x665865F2) : Colors.white.withValues(alpha: 0.08),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: iconColor, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 3),
+                  Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF9097A3))),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF9097A3)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1745,6 +2989,20 @@ class _NexcordHomeState extends State<NexcordHome> {
                   Navigator.pop(ctx);
                   await _api.pinMessage(_activeServer!.id, _activeChannel!.id, m);
                   await _syncNow(silent: true);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Message pinned to channel! 📌')),
+                    );
+                  }
+                },
+              ),
+            if (m.senderId == _me!.id && m.type == 'text')
+              ListTile(
+                leading: const Icon(Icons.edit_rounded, color: Color(0xFF8EA1FF)),
+                title: const Text('Edit Message'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showEditMessageDialog(m);
                 },
               ),
             if (m.senderId == _me!.id)
@@ -1758,6 +3016,150 @@ class _NexcordHomeState extends State<NexcordHome> {
                 },
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditMessageDialog(ChatMessage m) {
+    final editCtrl = TextEditingController(text: m.text);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF22242A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Edit Message', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: editCtrl,
+          autofocus: true,
+          maxLines: 4,
+          minLines: 1,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xFF16171B),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF9097A3))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5865F2), foregroundColor: Colors.white),
+            onPressed: () async {
+              final next = editCtrl.text.trim();
+              Navigator.pop(ctx);
+              if (next.isEmpty || next == m.text) return;
+              await _api.editMessage(_targetKey, m.id, next);
+              await _loadMessages();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPinnedMessagesSheet(BuildContext context, NexcordServer srv, NexcordChannel ch) {
+    final pins = srv.pins[ch.id] ?? const <Map<String, dynamic>>[];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF22242A),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Icon(Icons.push_pin_rounded, color: Color(0xFFFEE75C), size: 19),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Pinned Messages (${pins.length})',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (pins.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 28),
+                  child: Center(
+                    child: Text(
+                      'No pinned messages yet.\nLong-press any message in this channel to pin it.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Color(0xFF9097A3), fontSize: 13),
+                    ),
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.5),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: pins.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, idx) {
+                      final p = pins[idx];
+                      final sid = p['senderId']?.toString() ?? '';
+                      final pu = _users[sid];
+                      final ts = (p['createdAt'] as num?)?.toInt() ?? 0;
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF16171B),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 11,
+                                  backgroundColor: pu?.color ?? const Color(0xFF5865F2),
+                                  child: Text(
+                                    (pu?.displayName ?? (sid.isNotEmpty ? sid : 'U'))[0].toUpperCase(),
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    pu?.displayName ?? sid,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                                  ),
+                                ),
+                                if (ts > 0)
+                                  Text(formatChatTime(ts), style: const TextStyle(fontSize: 11, color: Color(0xFF9097A3))),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              p['text']?.toString() ?? '',
+                              style: const TextStyle(fontSize: 13.5, color: Color(0xFFDBDEE1)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -3392,6 +4794,7 @@ class _AuthScreenState extends State<_AuthScreen> {
   final _passCtrl = TextEditingController();
   final _demoCtrl = TextEditingController();
   bool _isRegister = false;
+  bool _obscurePass = true;
 
   // Server URL
   late final TextEditingController _urlCtrl = TextEditingController(text: widget.api.baseUrl);
@@ -3716,173 +5119,260 @@ class _AuthScreenState extends State<_AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1F22),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 440),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2B2D31),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF383A40)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black38,
-                    blurRadius: 20,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Logo & Brand Header
-                  Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x66863BFF),
-                              blurRadius: 10,
-                              offset: Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.asset(
-                            'assets/nexconn_logo.png',
-                            width: 48,
-                            height: 48,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(Icons.hub_rounded, color: Colors.white, size: 28),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Nexcord',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.5,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Gaming, Squad Chat & Live Streams',
-                              style: TextStyle(fontSize: 12, color: Color(0xFF949BA4)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Mode Switcher Tabs
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E1F22),
-                      borderRadius: BorderRadius.circular(10),
+      backgroundColor: const Color(0xFF0E1017),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment(-0.5, -0.6),
+            radius: 1.2,
+            colors: [Color(0xFF232956), Color(0xFF0E1017)],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 440),
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF22242A),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black54,
+                      blurRadius: 28,
+                      offset: Offset(0, 12),
                     ),
-                    padding: const EdgeInsets.all(4),
-                    child: Row(
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Logo & Brand Header
+                    Row(
                       children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() {
-                              _mode = 'otp';
-                              _err = '';
-                            }),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              decoration: BoxDecoration(
-                                color: _mode == 'otp' ? const Color(0xFF5865F2) : Colors.transparent,
-                                borderRadius: BorderRadius.circular(8),
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF5865F2), Color(0xFF7C3AED)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x665865F2),
+                                blurRadius: 12,
+                                offset: Offset(0, 4),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.phone_android_rounded,
-                                    size: 16,
-                                    color: _mode == 'otp' ? Colors.white : const Color(0xFF949BA4),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Text(
-                                        'Mobile OTP',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                          color: _mode == 'otp' ? Colors.white : const Color(0xFF949BA4),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Image.asset(
+                              'assets/nexconn_logo.png',
+                              width: 48,
+                              height: 48,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(Icons.sports_esports_rounded, color: Colors.white, size: 26),
                             ),
                           ),
                         ),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() {
-                              _mode = 'pass';
-                              _err = '';
-                            }),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              decoration: BoxDecoration(
-                                color: _mode == 'pass' ? const Color(0xFF5865F2) : Colors.transparent,
-                                borderRadius: BorderRadius.circular(8),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Nexcord',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.5,
+                                  color: Colors.white,
+                                ),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.key_rounded,
-                                    size: 16,
-                                    color: _mode == 'pass' ? Colors.white : const Color(0xFF949BA4),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Text(
-                                        'Password / Demo',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                          color: _mode == 'pass' ? Colors.white : const Color(0xFF949BA4),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                              SizedBox(height: 2),
+                              Text(
+                                'Gaming, Squad Chat & Live Streams',
+                                style: TextStyle(fontSize: 12, color: Color(0xFF9097A3)),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 18),
+
+                    // 1-Click Instant Guest Entry Strip (always accessible upfront!)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0x1F23A55A), Color(0x145865F2)],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0x5557F287)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.bolt_rounded, color: Color(0xFF57F287), size: 17),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'INSTANT GUEST ACCESS',
+                                    style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF57F287), fontSize: 11.5, letterSpacing: 0.4),
+                                  ),
+                                ],
+                              ),
+                              Text('No signup needed', style: TextStyle(fontSize: 11, color: Color(0xFF9097A3))),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _demoCtrl,
+                                  style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                                  onSubmitted: (_) => _demo(),
+                                  decoration: InputDecoration(
+                                    hintText: 'Gamer tag (optional)',
+                                    hintStyle: const TextStyle(color: Color(0xFF6D6F78)),
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: const Color(0xFF16171B),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: const BorderSide(color: Color(0xFF343741)),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: const BorderSide(color: Color(0xFF343741)),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF23A55A),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+                                ),
+                                onPressed: _busy ? null : _demo,
+                                icon: const Icon(Icons.flash_on_rounded, size: 16),
+                                label: const Text('Enter Arena', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Mode Switcher Tabs
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF16171B),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.all(4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() {
+                                _mode = 'otp';
+                                _err = '';
+                              }),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: _mode == 'otp' ? const Color(0xFF5865F2) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.phone_android_rounded,
+                                      size: 16,
+                                      color: _mode == 'otp' ? Colors.white : const Color(0xFF9097A3),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          'Mobile OTP',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: _mode == 'otp' ? Colors.white : const Color(0xFF9097A3),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() {
+                                _mode = 'pass';
+                                _err = '';
+                              }),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: _mode == 'pass' ? const Color(0xFF5865F2) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.key_rounded,
+                                      size: 16,
+                                      color: _mode == 'pass' ? Colors.white : const Color(0xFF9097A3),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          'Account Login',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: _mode == 'pass' ? Colors.white : const Color(0xFF9097A3),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
 
                   // Error Banner
                   if (_err.isNotEmpty) ...[
@@ -4214,80 +5704,23 @@ class _AuthScreenState extends State<_AuthScreen> {
                       ),
                     ],
                   ] else ...[
-                    // Tab 2: Password & Demo Login
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0x1823A55A),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0x4423A55A)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.flash_on_rounded, color: Color(0xFF57F287), size: 18),
-                              SizedBox(width: 6),
-                              Text(
-                                'Instant Guest Demo Join',
-                                style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF57F287), fontSize: 13),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _demoCtrl,
-                                  style: const TextStyle(color: Colors.white, fontSize: 13.5),
-                                  decoration: InputDecoration(
-                                    hintText: 'Gamer tag (optional)',
-                                    hintStyle: const TextStyle(color: Color(0xFF6D6F78)),
-                                    isDense: true,
-                                    filled: true,
-                                    fillColor: const Color(0xFF1E1F22),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(6),
-                                      borderSide: const BorderSide(color: Color(0xFF383A40)),
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF23A55A),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                ),
-                                onPressed: _busy ? null : _demo,
-                                child: const Text('Enter Arena', style: TextStyle(fontWeight: FontWeight.bold)),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                    // Tab 2: Account Login / Register
                     TextField(
                       controller: _userCtrl,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: InputDecoration(
                         labelText: 'Username',
+                        prefixIcon: const Icon(Icons.person_outline_rounded, size: 18, color: Color(0xFF9097A3)),
                         labelStyle: const TextStyle(color: Color(0xFF949BA4), fontSize: 13),
                         filled: true,
-                        fillColor: const Color(0xFF1E1F22),
+                        fillColor: const Color(0xFF16171B),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: Color(0xFF343741)),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: Color(0xFF343741)),
                         ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       ),
@@ -4295,20 +5728,30 @@ class _AuthScreenState extends State<_AuthScreen> {
                     const SizedBox(height: 10),
                     TextField(
                       controller: _passCtrl,
-                      obscureText: true,
+                      obscureText: _obscurePass,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
+                      onSubmitted: (_) => _submitPassword(),
                       decoration: InputDecoration(
                         labelText: 'Password',
+                        prefixIcon: const Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF9097A3)),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePass ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                            size: 18,
+                            color: const Color(0xFF9097A3),
+                          ),
+                          onPressed: () => setState(() => _obscurePass = !_obscurePass),
+                        ),
                         labelStyle: const TextStyle(color: Color(0xFF949BA4), fontSize: 13),
                         filled: true,
-                        fillColor: const Color(0xFF1E1F22),
+                        fillColor: const Color(0xFF16171B),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: Color(0xFF343741)),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFF383A40)),
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: Color(0xFF343741)),
                         ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       ),
@@ -4319,18 +5762,18 @@ class _AuthScreenState extends State<_AuthScreen> {
                         backgroundColor: const Color(0xFF5865F2),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                       onPressed: _busy ? null : _submitPassword,
                       child: Text(
-                        _isRegister ? 'Register Account' : 'Log In',
+                        _isRegister ? 'Create Squad Account' : 'Log In to Nexcord',
                         style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
                       ),
                     ),
                     TextButton(
                       onPressed: () => setState(() => _isRegister = !_isRegister),
                       child: Text(
-                        _isRegister ? 'Have an account? Log In' : 'Need an account? Register',
+                        _isRegister ? 'Already have an account? Log In' : 'Need an account? Register free',
                         style: const TextStyle(color: Color(0xFF5865F2), fontSize: 13),
                       ),
                     ),
@@ -4379,6 +5822,7 @@ class _AuthScreenState extends State<_AuthScreen> {
             ),
           ),
         ),
+        ),
       ),
     );
   }
@@ -4390,10 +5834,13 @@ class _FriendsHub extends StatefulWidget {
   final List<String> dms;
   final Map<String, NexcordUser> users;
   final NexcordUser me;
+  final ApiService api;
   final Future<void> Function(String userId) onAccept;
   final Future<void> Function(String userId) onDecline;
-  final Future<void> Function(String username) onAddFriend;
+  final Future<void> Function(String identifier) onAddFriend;
   final Future<void> Function(String userId) onOpenDm;
+  final Future<void> Function(String userId, bool video, {String? contactName}) onCallUser;
+  final Future<void> Function(String phone, bool video) onCallPhone;
 
   const _FriendsHub({
     required this.friends,
@@ -4401,10 +5848,13 @@ class _FriendsHub extends StatefulWidget {
     required this.dms,
     required this.users,
     required this.me,
+    required this.api,
     required this.onAccept,
     required this.onDecline,
     required this.onAddFriend,
     required this.onOpenDm,
+    required this.onCallUser,
+    required this.onCallPhone,
   });
 
   @override
@@ -4412,10 +5862,539 @@ class _FriendsHub extends StatefulWidget {
 }
 
 class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderStateMixin {
-  late final TabController _tabCtrl = TabController(length: 4, vsync: this);
+  late final TabController _tabCtrl = TabController(length: 5, vsync: this);
   final _addCtrl = TextEditingController();
+  final _dialPhoneCtrl = TextEditingController();
+  final _scanPhonesCtrl = TextEditingController();
   String _feedback = '';
   bool _showAddBar = false;
+  bool _dialBusy = false;
+  String _dialFeedback = '';
+  bool _scanningContacts = false;
+  String _contactStatus = '';
+  List<ContactMatch> _contactMatches = [];
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    _addCtrl.dispose();
+    _dialPhoneCtrl.dispose();
+    _scanPhonesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _syncDeviceContacts() async {
+    setState(() {
+      _scanningContacts = true;
+      _contactStatus = '';
+    });
+    try {
+      final entries = await ContactsService.instance.loadDeviceContacts();
+      if (entries.isEmpty) {
+        if (mounted) {
+          setState(() => _contactStatus = 'No phone numbers found in device contacts.');
+        }
+        return;
+      }
+      final matches = await widget.api.matchContacts(
+        contacts: entries.map((e) => e.toMap()).toList(),
+      );
+      if (mounted) {
+        setState(() {
+          _contactMatches = matches;
+          _contactStatus =
+              'Matched ${matches.length} contact(s) on Nexcord out of ${entries.length} device numbers.';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _contactStatus = e.toString().replaceFirst(RegExp(r'^(ApiException\(\d+\): |Exception: )'), '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _scanningContacts = false);
+    }
+  }
+
+  Future<void> _scanManualPhones() async {
+    final raw = _scanPhonesCtrl.text.trim();
+    if (raw.isEmpty) return;
+    final nums = raw
+        .split(RegExp(r'[\n,;]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (nums.isEmpty) return;
+    setState(() {
+      _scanningContacts = true;
+      _contactStatus = '';
+    });
+    try {
+      final matches = await widget.api.matchContacts(phoneNumbers: nums);
+      if (mounted) {
+        setState(() {
+          _contactMatches = matches;
+          _contactStatus = 'Scanned ${nums.length} number(s): found ${matches.length} user(s) on Nexcord.';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _contactStatus = e.toString().replaceFirst(RegExp(r'^(ApiException\(\d+\): |Exception: )'), '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _scanningContacts = false);
+    }
+  }
+
+  Widget _buildUserCallRow({
+    required String uid,
+    required NexcordUser? u,
+    required bool isOnline,
+    required String subtitle,
+  }) {
+    final display = u?.displayName ?? uid;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: u?.color ?? const Color(0xFF5865F2),
+            child: Text(
+              display.isNotEmpty ? display[0].toUpperCase() : 'U',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+          if (isOnline)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF23A55A),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF313338), width: 2),
+                ),
+              ),
+            ),
+        ],
+      ),
+      title: Text(display, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+      subtitle: Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 12, color: isOnline ? const Color(0xFF57F287) : const Color(0xFF949BA4)),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.call_rounded, color: Color(0xFF23A55A), size: 20),
+            tooltip: 'Voice Call',
+            onPressed: () => widget.onCallUser(uid, false),
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam_rounded, color: Color(0xFF8EA1FF), size: 20),
+            tooltip: 'Video Call',
+            onPressed: () => widget.onCallUser(uid, true),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF5865F2), size: 20),
+            tooltip: 'Message',
+            onPressed: () => widget.onOpenDm(uid),
+          ),
+        ],
+      ),
+      onTap: () => widget.onOpenDm(uid),
+    );
+  }
+
+  Widget _buildContactsTab() {
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0x221FA855), Color(0x1E5865F2)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0x331FA855),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.perm_phone_msg_rounded, color: Color(0xFF57F287), size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Call Friends from Phone Contacts',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.5),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Dial any friend’s phone number or sync your Android contacts for 1-tap voice & video calling across app and web.',
+                      style: TextStyle(color: Color(0xFFB5BAC1), fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1D28),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'DIRECT PHONE NUMBER CALL',
+                style: TextStyle(color: Color(0xFF949BA4), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _dialPhoneCtrl,
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Enter phone number (e.g. +91 98765 43210)',
+                  hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                  prefixIcon: const Icon(Icons.dialpad_rounded, color: Color(0xFF949BA4), size: 18),
+                  filled: true,
+                  fillColor: const Color(0xFF10131C),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1FA855),
+                        foregroundColor: Colors.white,
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: _dialBusy
+                          ? null
+                          : () async {
+                              final phone = _dialPhoneCtrl.text.trim();
+                              if (phone.isEmpty) return;
+                              setState(() {
+                                _dialBusy = true;
+                                _dialFeedback = '';
+                              });
+                              try {
+                                await widget.onCallPhone(phone, false);
+                                if (mounted) {
+                                  setState(() => _dialFeedback = 'Calling $phone...');
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  setState(() {
+                                    _dialFeedback = e.toString().replaceFirst(RegExp(r'^(ApiException\(\d+\): |Exception: )'), '');
+                                  });
+                                }
+                              } finally {
+                                if (mounted) setState(() => _dialBusy = false);
+                              }
+                            },
+                      icon: const Icon(Icons.call_rounded, size: 17),
+                      label: const Text('Voice Call', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF5865F2),
+                        foregroundColor: Colors.white,
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: _dialBusy
+                          ? null
+                          : () async {
+                              final phone = _dialPhoneCtrl.text.trim();
+                              if (phone.isEmpty) return;
+                              setState(() {
+                                _dialBusy = true;
+                                _dialFeedback = '';
+                              });
+                              try {
+                                await widget.onCallPhone(phone, true);
+                                if (mounted) {
+                                  setState(() => _dialFeedback = 'Video calling $phone...');
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  setState(() {
+                                    _dialFeedback = e.toString().replaceFirst(RegExp(r'^(ApiException\(\d+\): |Exception: )'), '');
+                                  });
+                                }
+                              } finally {
+                                if (mounted) setState(() => _dialBusy = false);
+                              }
+                            },
+                      icon: const Icon(Icons.videocam_rounded, size: 18),
+                      label: const Text('Video Call', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+              if (_dialFeedback.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _dialFeedback,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _dialFeedback.startsWith('Calling') || _dialFeedback.startsWith('Video calling')
+                        ? const Color(0xFF57F287)
+                        : const Color(0xFFFF7B7E),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1D28),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'PHONE CONTACTS SYNC',
+                      style: TextStyle(color: Color(0xFF949BA4), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF5865F2),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
+                    ),
+                    onPressed: _scanningContacts ? null : _syncDeviceContacts,
+                    icon: _scanningContacts
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.contacts_rounded, size: 15),
+                    label: Text(
+                      _scanningContacts ? 'Syncing...' : 'Sync Phone Contacts',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _scanPhonesCtrl,
+                      keyboardType: TextInputType.text,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Or paste numbers (comma separated)',
+                        hintStyle: const TextStyle(color: Colors.white38, fontSize: 12.5),
+                        filled: true,
+                        fillColor: const Color(0xFF10131C),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2B2E3B),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: _scanningContacts ? null : _scanManualPhones,
+                    child: const Text('Scan', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+              if (_contactStatus.isNotEmpty) ...[
+                const SizedBox(height: 9),
+                Text(_contactStatus, style: const TextStyle(fontSize: 12, color: Color(0xFF57F287))),
+              ],
+            ],
+          ),
+        ),
+        if (_contactMatches.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Text(
+            'AVAILABLE TO CALL (${_contactMatches.length})',
+            style: const TextStyle(color: Color(0xFF949BA4), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+          ),
+          const SizedBox(height: 6),
+          ..._contactMatches.map((m) {
+            final u = m.user;
+            final showHandle = m.contactName != u.displayName ? ' (@${u.displayName})' : '';
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161923),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                leading: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: u.color,
+                      child: Text(
+                        m.contactName.isNotEmpty ? m.contactName[0].toUpperCase() : 'C',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    if (m.isOnline)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 11,
+                          height: 11,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF23A55A),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFF161923), width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                title: Text(
+                  '${m.contactName}$showHandle',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                subtitle: Text(
+                  m.phone,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Color(0xFF949BA4), fontSize: 11.5),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1FA855),
+                        foregroundColor: Colors.white,
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => widget.onCallUser(u.id, false, contactName: m.contactName),
+                      icon: const Icon(Icons.call_rounded, size: 14),
+                      label: const Text('Call', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.videocam_rounded, color: Color(0xFF8EA1FF), size: 19),
+                      tooltip: 'Video Call',
+                      onPressed: () => widget.onCallUser(u.id, true, contactName: m.contactName),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF949BA4), size: 18),
+                      tooltip: 'Message',
+                      onPressed: () => widget.onOpenDm(u.id),
+                    ),
+                    if (!m.isFriend && !m.hasPendingOutgoing)
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF8EA1FF),
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () async {
+                          try {
+                            await widget.api.requestFriendById(u.id);
+                            if (mounted) {
+                              setState(() {
+                                _contactMatches = _contactMatches
+                                    .map((x) => x.user.id == u.id
+                                        ? ContactMatch(
+                                            user: x.user,
+                                            contactName: x.contactName,
+                                            phone: x.phone,
+                                            isFriend: x.isFriend,
+                                            hasPendingOutgoing: true,
+                                            isOnline: x.isOnline,
+                                          )
+                                        : x)
+                                    .toList();
+                                _contactStatus = 'Friend request sent to ${m.contactName}!';
+                              });
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              setState(() {
+                                _contactStatus = e.toString().replaceFirst(RegExp(r'^(ApiException\(\d+\): |Exception: )'), '');
+                              });
+                            }
+                          }
+                        },
+                        child: const Text('+ Add', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4437,7 +6416,8 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                 tabs: [
                   Tab(text: 'DMs (${widget.dms.length})'),
                   Tab(text: 'Online (${onlineFriends.length})'),
-                  Tab(text: 'All Friends (${widget.friends.length})'),
+                  Tab(text: 'All (${widget.friends.length})'),
+                  const Tab(text: 'Contacts'),
                   Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -4475,7 +6455,7 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                               const Icon(Icons.person_add_alt_1_rounded, size: 16, color: Color(0xFF23A55A)),
                               const SizedBox(width: 8),
                               Text(
-                                _showAddBar ? 'Close Add Friend' : 'Add Friend with Username',
+                                _showAddBar ? 'Close Add Friend' : 'Add Friend by Username or Phone',
                                 style: const TextStyle(fontSize: 12.5, color: Color(0xFFDBDEE1), fontWeight: FontWeight.w600),
                               ),
                             ],
@@ -4497,7 +6477,7 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                           autofocus: true,
                           style: const TextStyle(color: Colors.white, fontSize: 13),
                           decoration: InputDecoration(
-                            hintText: 'Enter username (e.g. vex.clutch)',
+                            hintText: 'Username (e.g. vex.clutch) or phone (+91...)',
                             hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
                             filled: true,
                             fillColor: const Color(0xFF2B2D31),
@@ -4521,7 +6501,7 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                           try {
                             await widget.onAddFriend(un);
                             setState(() {
-                              _feedback = 'Friend request sent to $un! 🎉';
+                              _feedback = 'Friend request sent to $un!';
                               _showAddBar = false;
                             });
                             _addCtrl.clear();
@@ -4558,40 +6538,13 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                         final uid = widget.dms[i];
                         final u = widget.users[uid];
                         final isOnline = u?.status == 'online';
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          leading: Stack(
-                            children: [
-                              CircleAvatar(
-                                radius: 20,
-                                backgroundColor: u?.color ?? const Color(0xFF5865F2),
-                                child: Text((u?.displayName ?? uid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                              ),
-                              if (isOnline)
-                                Positioned(
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                    width: 12,
-                                    height: 12,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF23A55A),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: const Color(0xFF313338), width: 2),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          title: Text(u?.displayName ?? uid, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                          subtitle: Text(
-                            u?.customStatus.isNotEmpty == true ? u!.customStatus : (isOnline ? 'Online' : 'Offline'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 12, color: isOnline ? const Color(0xFF57F287) : const Color(0xFF949BA4)),
-                          ),
-                          trailing: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF5865F2), size: 20),
-                          onTap: () => widget.onOpenDm(uid),
+                        return _buildUserCallRow(
+                          uid: uid,
+                          u: u,
+                          isOnline: isOnline,
+                          subtitle: u?.customStatus.isNotEmpty == true
+                              ? u!.customStatus
+                              : (isOnline ? 'Online' : 'Offline'),
                         );
                       },
                     ),
@@ -4606,19 +6559,11 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                       itemBuilder: (ctx, i) {
                         final uid = onlineFriends[i];
                         final u = widget.users[uid];
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          leading: CircleAvatar(
-                            radius: 20,
-                            backgroundColor: u?.color ?? const Color(0xFF5865F2),
-                            child: Text((u?.displayName ?? uid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                          title: Text(u?.displayName ?? uid, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                          subtitle: Text(u?.customStatus.isNotEmpty == true ? u!.customStatus : 'Online', style: const TextStyle(fontSize: 12, color: Color(0xFF57F287))),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF5865F2), size: 20),
-                            onPressed: () => widget.onOpenDm(uid),
-                          ),
+                        return _buildUserCallRow(
+                          uid: uid,
+                          u: u,
+                          isOnline: true,
+                          subtitle: u?.customStatus.isNotEmpty == true ? u!.customStatus : 'Online',
                         );
                       },
                     ),
@@ -4634,25 +6579,17 @@ class _FriendsHubState extends State<_FriendsHub> with SingleTickerProviderState
                         final uid = widget.friends[i];
                         final u = widget.users[uid];
                         final isOnline = u?.status == 'online';
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          leading: CircleAvatar(
-                            radius: 20,
-                            backgroundColor: u?.color ?? const Color(0xFF5865F2),
-                            child: Text((u?.displayName ?? uid)[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                          title: Text(u?.displayName ?? uid, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                          subtitle: Text(
-                            u?.customStatus.isNotEmpty == true ? u!.customStatus : (isOnline ? 'Online' : 'Offline'),
-                            style: TextStyle(fontSize: 12, color: isOnline ? const Color(0xFF57F287) : const Color(0xFF949BA4)),
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF5865F2), size: 20),
-                            onPressed: () => widget.onOpenDm(uid),
-                          ),
+                        return _buildUserCallRow(
+                          uid: uid,
+                          u: u,
+                          isOnline: isOnline,
+                          subtitle: u?.customStatus.isNotEmpty == true
+                              ? u!.customStatus
+                              : (isOnline ? 'Online' : 'Offline'),
                         );
                       },
                     ),
+              _buildContactsTab(),
               widget.incoming.isEmpty
                   ? const Center(
                       child: Text('No pending friend requests.', style: TextStyle(color: Color(0xFF949BA4))),

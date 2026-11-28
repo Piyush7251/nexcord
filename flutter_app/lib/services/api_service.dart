@@ -14,6 +14,7 @@ class SyncResult {
   final Map<String, SquadLobbyState> squadState;
   final String? voiceServerId;
   final String? voiceChannelId;
+  final DirectCallInfo? activeDirectCall;
 
   SyncResult({
     required this.me,
@@ -26,6 +27,7 @@ class SyncResult {
     required this.squadState,
     this.voiceServerId,
     this.voiceChannelId,
+    this.activeDirectCall,
   });
 }
 
@@ -307,6 +309,7 @@ class ApiService {
       squadMap[e.key] = SquadLobbyState.fromJson(e.value as Map<String, dynamic>);
     }
     final mv = j['myVoice'] as Map<String, dynamic>?;
+    final dcRaw = j['activeDirectCall'] as Map<String, dynamic>?;
     return SyncResult(
       me: NexcordUser.fromJson(j['me'] as Map<String, dynamic>),
       servers: (j['servers'] as List<dynamic>? ?? [])
@@ -320,6 +323,7 @@ class ApiService {
       squadState: squadMap,
       voiceServerId: mv?['serverId']?.toString(),
       voiceChannelId: mv?['channelId']?.toString(),
+      activeDirectCall: dcRaw != null ? DirectCallInfo.fromJson(dcRaw) : null,
     );
   }
 
@@ -419,7 +423,70 @@ class ApiService {
   Future<void> setVoiceCallId(String callId) =>
       _req('POST', '/api/voice/call', {'callId': callId});
 
-  Future<void> requestFriend(String username) => _req('POST', '/api/friends/request', {'username': username});
+  Future<List<ContactMatch>> matchContacts({
+    List<Map<String, String>>? contacts,
+    List<String>? phoneNumbers,
+  }) async {
+    final res = await _req('POST', '/api/contacts/match', {
+      if (contacts != null) 'contacts': contacts,
+      if (phoneNumbers != null) 'phoneNumbers': phoneNumbers,
+    });
+    final rawList = (res['matches'] as List?) ?? const [];
+    return rawList
+        .whereType<Map>()
+        .map((e) => ContactMatch.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  Future<DirectCallInfo> startDirectCall({
+    String? targetUserId,
+    String? phone,
+    String mediaType = 'audio',
+    String contactName = '',
+  }) async {
+    final res = await _req('POST', '/api/calls/start', {
+      if (targetUserId != null && targetUserId.isNotEmpty)
+        'targetUserId': targetUserId,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+      'mediaType': mediaType,
+      if (contactName.isNotEmpty) 'contactName': contactName,
+    });
+    return DirectCallInfo.fromJson(
+      Map<String, dynamic>.from((res['call'] as Map?) ?? const {}),
+    );
+  }
+
+  Future<DirectCallInfo> acceptDirectCall(
+    String callId, {
+    String mediaType = 'audio',
+  }) async {
+    final res = await _req('POST', '/api/calls/accept', {
+      'callId': callId,
+      'mediaType': mediaType,
+    });
+    return DirectCallInfo.fromJson(
+      Map<String, dynamic>.from((res['call'] as Map?) ?? const {}),
+    );
+  }
+
+  Future<void> endDirectCall(String callId, {String reason = 'hangup'}) =>
+      _req('POST', '/api/calls/end', {'callId': callId, 'reason': reason});
+
+  Future<void> requestFriend(String identifier) {
+    final trimmed = identifier.trim();
+    final digits = trimmed.replaceAll(RegExp(r'\D'), '');
+    final looksLikePhone =
+        trimmed.startsWith('+') || (digits.length >= 8 && digits.length >= trimmed.length - 4);
+    return _req(
+      'POST',
+      '/api/friends/request',
+      looksLikePhone ? {'phone': trimmed} : {'username': trimmed},
+    );
+  }
+
+  Future<void> requestFriendById(String userId) =>
+      _req('POST', '/api/friends/request', {'userId': userId});
+
   Future<void> acceptFriend(String userId) => _req('POST', '/api/friends/accept', {'userId': userId});
   Future<void> declineFriend(String userId) => _req('POST', '/api/friends/decline', {'userId': userId});
   Future<void> openDm(String userId) => _req('POST', '/api/dms/open', {'userId': userId});

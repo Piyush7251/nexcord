@@ -203,3 +203,40 @@ export function playSoundEffect(id: SoundEffect): void {
     console.warn('Soundboard audio error', err);
   }
 }
+
+export function playRingtonePulse(kind: 'incoming' | 'outgoing' = 'incoming'): void {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    if (kind === 'incoming') {
+      const notes = [523.25, 659.25];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+        gain.gain.setValueAtTime(0.001, now + idx * 0.14);
+        gain.gain.exponentialRampToValueAtTime(0.14, now + idx * 0.14 + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.14 + 0.36);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.14);
+        osc.stop(now + idx * 0.14 + 0.38);
+      });
+    } else {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(0.07, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.36);
+    }
+  } catch {
+    // ignore autoplay restriction before user gesture
+  }
+}

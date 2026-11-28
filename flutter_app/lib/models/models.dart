@@ -20,6 +20,7 @@ class NexcordUser {
   final String avatarColor;
   final String avatarUrl;
   final String bannerColor;
+  final String phone;
   final String status;
   final String customStatus;
   final String about;
@@ -33,6 +34,7 @@ class NexcordUser {
     required this.avatarColor,
     this.avatarUrl = '',
     this.bannerColor = '',
+    this.phone = '',
     this.status = 'offline',
     this.customStatus = '',
     this.about = '',
@@ -47,6 +49,7 @@ class NexcordUser {
         avatarColor: j['avatarColor']?.toString() ?? '#5865F2',
         avatarUrl: j['avatarUrl']?.toString() ?? '',
         bannerColor: j['bannerColor']?.toString() ?? '',
+        phone: j['phone']?.toString() ?? '',
         status: j['status']?.toString() ?? 'offline',
         customStatus: j['customStatus']?.toString() ?? '',
         about: j['about']?.toString() ?? '',
@@ -61,6 +64,7 @@ class NexcordUser {
         'avatarColor': avatarColor,
         'avatarUrl': avatarUrl,
         'bannerColor': bannerColor,
+        'phone': phone,
         'status': status,
         'customStatus': customStatus,
         'about': about,
@@ -490,3 +494,84 @@ const List<QuickChatPreset> kQuickChatPresets = [
   QuickChatPreset(id: 's3', category: 'status', icon: '🎧', label: 'In Voice', text: '🎧 Hopping into Squad Voice Huddle!'),
   QuickChatPreset(id: 's4', category: 'status', icon: '📺', label: 'Watch Party', text: '📺 Watching the Live Stream Stage!'),
 ];
+
+class DirectCallInfo {
+  final String callId;
+  final String callerId;
+  final String calleeId;
+  final String mediaType;
+  final String status;
+  final int? createdAt;
+  final int? answeredAt;
+  final bool isFriend;
+  final String contactLabel;
+  final NexcordUser? caller;
+  final NexcordUser? callee;
+
+  DirectCallInfo({
+    required this.callId,
+    required this.callerId,
+    required this.calleeId,
+    required this.mediaType,
+    required this.status,
+    this.createdAt,
+    this.answeredAt,
+    this.isFriend = false,
+    this.contactLabel = '',
+    this.caller,
+    this.callee,
+  });
+
+  factory DirectCallInfo.fromJson(Map<String, dynamic> j) => DirectCallInfo(
+        callId: j['callId']?.toString() ?? '',
+        callerId: j['callerId']?.toString() ?? '',
+        calleeId: j['calleeId']?.toString() ?? '',
+        mediaType: j['mediaType']?.toString() == 'video' ? 'video' : 'audio',
+        status: j['status']?.toString() ?? 'ringing',
+        createdAt: j['createdAt'] is num ? (j['createdAt'] as num).toInt() : null,
+        answeredAt: j['answeredAt'] is num ? (j['answeredAt'] as num).toInt() : null,
+        isFriend: j['isFriend'] == true,
+        contactLabel: j['contactLabel']?.toString() ?? '',
+        caller: j['caller'] is Map
+            ? NexcordUser.fromJson(Map<String, dynamic>.from(j['caller'] as Map))
+            : null,
+        callee: j['callee'] is Map
+            ? NexcordUser.fromJson(Map<String, dynamic>.from(j['callee'] as Map))
+            : null,
+      );
+}
+
+class ContactMatch {
+  final NexcordUser user;
+  final String contactName;
+  final String phone;
+  final bool isFriend;
+  final bool hasPendingOutgoing;
+  final bool isOnline;
+
+  ContactMatch({
+    required this.user,
+    required this.contactName,
+    required this.phone,
+    this.isFriend = false,
+    this.hasPendingOutgoing = false,
+    this.isOnline = false,
+  });
+
+  factory ContactMatch.fromJson(Map<String, dynamic> j) {
+    final userMap = j['user'] is Map
+        ? Map<String, dynamic>.from(j['user'] as Map)
+        : <String, dynamic>{};
+    final parsedUser = NexcordUser.fromJson(userMap);
+    return ContactMatch(
+      user: parsedUser,
+      contactName: (j['contactName']?.toString() ?? '').trim().isNotEmpty
+          ? j['contactName'].toString().trim()
+          : parsedUser.displayName,
+      phone: j['phone']?.toString() ?? parsedUser.phone,
+      isFriend: j['isFriend'] == true,
+      hasPendingOutgoing: j['hasPendingOutgoing'] == true,
+      isOnline: j['isOnline'] == true || parsedUser.status != 'offline',
+    );
+  }
+}

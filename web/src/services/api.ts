@@ -1,4 +1,4 @@
-import type { ChatMessage, NexconnConfig, Server, SquadLobbyState, SyncPayload, User } from '../types';
+import type { ChatMessage, DirectCallSession, NexconnConfig, Server, SquadLobbyState, SyncPayload, User } from '../types';
 
 const PRODUCTION_API = 'https://nexcord-a85i.onrender.com';
 
@@ -22,6 +22,11 @@ export function setApiBase(url: string): void {
   const clean = url.trim().replace(/\/+$/, '');
   if (!clean) localStorage.removeItem('nexcord_api_base');
   else localStorage.setItem('nexcord_api_base', clean);
+}
+
+export function getApkDownloadUrl(): string {
+  const base = getApiBase();
+  return `${base}/api/download/apk`;
 }
 
 function getCookie(name: string): string {
@@ -289,6 +294,14 @@ export const api = {
     req('/api/voice/state', { method: 'POST', body: JSON.stringify(patch) }),
   leaveVoice: () => req('/api/voice/leave', { method: 'POST' }),
 
+  startDirectCall: (payload: { targetUserId?: string; phone?: string; mediaType?: 'audio' | 'video'; contactName?: string }) =>
+    req<{ call: DirectCallSession }>('/api/calls/start', { method: 'POST', body: JSON.stringify(payload) }),
+  acceptDirectCall: (callId: string, mediaType?: 'audio' | 'video') =>
+    req<{ call: DirectCallSession }>('/api/calls/accept', { method: 'POST', body: JSON.stringify({ callId, mediaType }) }),
+  endDirectCall: (callId?: string, reason?: string) =>
+    req<{ ok: boolean }>('/api/calls/end', { method: 'POST', body: JSON.stringify({ callId, reason }) }),
+  getActiveDirectCall: () => req<{ call: DirectCallSession | null }>('/api/calls/active'),
+
   requestFriend: (payload: { username?: string; phone?: string; userId?: string }) =>
     req<{ ok: boolean; user: User }>('/api/friends/request', { method: 'POST', body: JSON.stringify(payload) }),
   matchContacts: (payload: { phoneNumbers?: string[]; contacts?: { name: string; phone: string }[] }) =>
@@ -300,6 +313,7 @@ export const api = {
         isFriend: boolean;
         hasPendingOutgoing: boolean;
         hasPendingIncoming: boolean;
+        isOnline?: boolean;
       }>;
     }>('/api/contacts/match', {
       method: 'POST',

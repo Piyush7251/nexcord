@@ -611,12 +611,16 @@ class NexconnService {
 
   async acceptCall(callId: string, video: boolean) {
     await this.ensureLocalMedia(true, video);
-    if (this.mode === 'connected' && this.callEngine) {
-      const res = await this.callEngine.acceptCall({ callId });
-      this.log('call', 'NCCallEngine.acceptCall', `callId=${callId} code=${res.code}`, res.code === 0 ? 'ok' : 'warn');
-    } else {
-      this.log('call', 'NCCallEngine.acceptCall', `callId=${callId}`, 'info');
+    if (this.mode === 'connected' && this.callEngine && callId && !callId.startsWith('dc_') && !callId.startsWith('nccall_')) {
+      try {
+        const res = await this.callEngine.acceptCall({ callId });
+        this.log('call', 'NCCallEngine.acceptCall', `callId=${callId} code=${res.code}`, res.code === 0 ? 'ok' : 'warn');
+        return;
+      } catch {
+        // fallback below
+      }
     }
+    this.log('call', 'NCCallEngine.acceptCall', `callId=${callId}`, 'info');
   }
 
   async joinCall(callId: string, video = false) {
@@ -645,7 +649,7 @@ class NexconnService {
 
   async endCall(callId?: string) {
     this.stopMediaTracks();
-    if (this.mode === 'connected' && this.callEngine) {
+    if (this.mode === 'connected' && this.callEngine && (!callId || (!callId.startsWith('dc_') && !callId.startsWith('nccall_')))) {
       try {
         await this.callEngine.endCall(callId ? { callId } : {});
         this.log('call', 'NCCallEngine.endCall', `callId=${callId || 'current'}`, 'info');

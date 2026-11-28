@@ -3,9 +3,12 @@ import {
   Activity,
   Camera,
   Check,
+  Compass,
   Copy,
   Crown,
   Download,
+  Eye,
+  EyeOff,
   Gamepad2,
   Hash,
   Image as ImageIcon,
@@ -14,12 +17,14 @@ import {
   MessageSquare,
   Phone,
   Plus,
+  Radio,
   RefreshCw,
   Search,
   Server as ServerIcon,
   Settings,
   Shield,
   Smartphone,
+  Sparkles,
   Star,
   Trash2,
   Tv,
@@ -38,7 +43,7 @@ import type {
   UserStatus,
 } from '../types';
 import type { SdkConnectionMode } from '../services/nexconn';
-import { api, getApiBase, setApiBase } from '../services/api';
+import { api, getApiBase, getApkDownloadUrl, setApiBase } from '../services/api';
 import { Avatar } from './Avatar';
 import { sendFirebasePhoneOtp, verifyFirebasePhoneOtp } from '../services/firebaseAuth';
 
@@ -106,6 +111,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [demoHandle, setDemoHandle] = useState('');
   const [serverUrl, setServerUrl] = useState(getApiBase());
   const [showServerUrl, setShowServerUrl] = useState(false);
@@ -239,122 +245,363 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
 
   return (
     <div className="nc-auth-bg">
-      <div className="nc-auth-card">
-        <div className="nc-auth-brand">
-          <div className="nc-auth-logo">
-            <Gamepad2 size={28} />
+      <div className="nc-auth-orb orb-1" aria-hidden="true" />
+      <div className="nc-auth-orb orb-2" aria-hidden="true" />
+
+      <div className="nc-auth-shell">
+        {/* Left Hero Showcase (Desktop) */}
+        <div className="nc-auth-hero">
+          <div className="nc-auth-hero-pill">
+            <Sparkles size={13} />
+            <span>NEXCONN REAL-TIME ENGINE • SUB-200MS</span>
           </div>
-          <div>
-            <h1>Nexcord</h1>
-            <p>Gaming, Squad Chat & Live Streams • Powered by Nexconn SDK</p>
+          <h2 className="nc-auth-hero-title">
+            Your Squad&apos;s Tactical <span>Command Center.</span>
+          </h2>
+          <p className="nc-auth-hero-desc">
+            Unite low-latency voice huddles, live 60 FPS esports broadcasts with Danmaku chat, and instant in-match radial callouts in one cohesive hub.
+          </p>
+
+          <div className="nc-auth-features-grid">
+            <div className="nc-auth-feat-card">
+              <div className="nc-auth-feat-ico purple"><Zap size={18} /></div>
+              <div>
+                <strong>Sub-200ms Quick Chat</strong>
+                <span>Radial callouts &amp; Alt+1..5 hotkeys</span>
+              </div>
+            </div>
+            <div className="nc-auth-feat-card">
+              <div className="nc-auth-feat-ico red"><Tv size={18} /></div>
+              <div>
+                <strong>60 FPS Esports Stage</strong>
+                <span>Bullet Danmaku &amp; live hype bursts</span>
+              </div>
+            </div>
+            <div className="nc-auth-feat-card">
+              <div className="nc-auth-feat-ico green"><Radio size={18} /></div>
+              <div>
+                <strong>1-Click Voice Huddles</strong>
+                <span>WebRTC + Call SDK game audio boost</span>
+              </div>
+            </div>
+            <div className="nc-auth-feat-card">
+              <div className="nc-auth-feat-ico yellow"><Compass size={18} /></div>
+              <div>
+                <strong>Tactical Radar Pings</strong>
+                <span>Real-time map callouts for 4v4/5v5</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop APK Banner */}
+          <div className="nc-apk-banner desktop-apk">
+            <div className="nc-apk-left">
+              <div className="nc-apk-icon">
+                <Smartphone size={20} />
+              </div>
+              <div>
+                <div className="nc-apk-title">Nexcord for Android (v1.1)</div>
+                <div className="nc-apk-sub">Latest Material 3 UI &amp; UX • Direct APK</div>
+              </div>
+            </div>
+            <a
+              href={getApkDownloadUrl()}
+              download="Nexcord-Flutter.apk"
+              className="nc-btn primary sm nc-apk-btn"
+            >
+              <Download size={14} />
+              <span>Download APK</span>
+            </a>
           </div>
         </div>
 
-        {/* Tab switcher: Mobile OTP (Primary) vs Password */}
-        <div className="nc-auth-tabs">
-          <button
-            type="button"
-            className={`nc-auth-tab ${authMethod === 'mobile' ? 'active' : ''}`}
-            onClick={() => {
-              setErr('');
-              setAuthMethod('mobile');
-            }}
-          >
-            <Phone size={14} />
-            <span>Mobile OTP Login</span>
-          </button>
-          <button
-            type="button"
-            className={`nc-auth-tab ${authMethod === 'password' ? 'active' : ''}`}
-            onClick={() => {
-              setErr('');
-              setAuthMethod('password');
-            }}
-          >
-            <KeyRound size={14} />
-            <span>Password / Demo</span>
-          </button>
-        </div>
+        {/* Right Auth Card */}
+        <div className="nc-auth-card">
+          <div className="nc-auth-brand">
+            <div className="nc-auth-logo">
+              <Gamepad2 size={26} />
+            </div>
+            <div>
+              <h1>Nexcord</h1>
+              <p>Gaming, Squad Chat &amp; Live Streams</p>
+            </div>
+          </div>
 
-        {authMethod === 'mobile' ? (
-          <div>
-            {mobileStep === 'phone' ? (
-              <form onSubmit={handleSendOtp} className="nc-auth-form">
-                <div style={{ textAlign: 'left', marginBottom: 8 }}>
-                  <h2 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px', color: '#f2f3f5' }}>
-                    Verify Your Mobile Number
-                  </h2>
-                  <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    Enter your international or domestic mobile number to receive your 6-digit OTP code.
-                  </p>
-                </div>
+          {/* Instant 1-Click Guest Entry Strip */}
+          <div className="nc-instant-guest-strip">
+            <div className="nc-instant-guest-head">
+              <span className="nc-instant-badge"><Zap size={13} /> INSTANT GUEST ACCESS</span>
+              <span className="nc-instant-sub">No signup needed</span>
+            </div>
+            <div className="nc-demo-row">
+              <input
+                value={demoHandle}
+                onChange={(e) => setDemoHandle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleDemo();
+                  }
+                }}
+                placeholder="Gamer tag (optional, e.g. Striker)"
+              />
+              <button type="button" className="nc-btn green" disabled={busy} onClick={handleDemo}>
+                <Zap size={15} />
+                <span>Enter Arena</span>
+              </button>
+            </div>
+          </div>
 
+          <div className="nc-divider">
+            <span>OR SIGN IN WITH ACCOUNT</span>
+          </div>
+
+          {/* Tab switcher: Mobile OTP (Primary) vs Password */}
+          <div className="nc-auth-tabs">
+            <button
+              type="button"
+              className={`nc-auth-tab ${authMethod === 'mobile' ? 'active' : ''}`}
+              onClick={() => {
+                setErr('');
+                setAuthMethod('mobile');
+              }}
+            >
+              <Phone size={14} />
+              <span>Mobile OTP</span>
+            </button>
+            <button
+              type="button"
+              className={`nc-auth-tab ${authMethod === 'password' ? 'active' : ''}`}
+              onClick={() => {
+                setErr('');
+                setAuthMethod('password');
+              }}
+            >
+              <KeyRound size={14} />
+              <span>Username &amp; Password</span>
+            </button>
+          </div>
+
+          {authMethod === 'mobile' ? (
+            <div>
+              {mobileStep === 'phone' ? (
+                <form onSubmit={handleSendOtp} className="nc-auth-form">
+                  <label className="nc-field">
+                    <span>COUNTRY &amp; REGION</span>
+                    <select
+                      className="nc-phone-country-select"
+                      value={POPULAR_COUNTRY_CODES.some((c) => c.code === countryCode) ? countryCode : 'custom'}
+                      onChange={(e) => {
+                        if (e.target.value !== 'custom') {
+                          setCountryCode(e.target.value);
+                        }
+                      }}
+                    >
+                      {POPULAR_COUNTRY_CODES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.name} ({c.code})
+                        </option>
+                      ))}
+                      <option value="custom">🌍 Custom Dial Code</option>
+                    </select>
+                  </label>
+
+                  <label className="nc-field">
+                    <span>MOBILE PHONE NUMBER</span>
+                    <div className="nc-phone-input-row">
+                      <input
+                        className="nc-phone-prefix"
+                        value={countryCode}
+                        onChange={(e) => setCountryCode(e.target.value)}
+                        placeholder="+91"
+                        title="Country Dial Code"
+                      />
+                      <input
+                        type="tel"
+                        value={phoneDigits}
+                        onChange={(e) => setPhoneDigits(e.target.value)}
+                        placeholder="98765 43210"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  </label>
+
+                  {phoneDigits.replace(/\D/g, '') === '123456789' && (
+                    <div className="nc-admin-hint-banner">
+                      <Shield size={16} color="#FEE75C" />
+                      <span><strong>Admin Master Account 🛡️:</strong> Verify with OTP <code>123456</code>.</span>
+                    </div>
+                  )}
+
+                  <label className="nc-field">
+                    <span>GAMER TAG / DISPLAY NAME (OPTIONAL)</span>
+                    <input
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="e.g. Striker, Alex, Ghost"
+                    />
+                  </label>
+
+                  {showServerUrl && (
+                    <label className="nc-field">
+                      <span>API SERVER URL</span>
+                      <input
+                        value={serverUrl}
+                        onChange={(e) => setServerUrl(e.target.value)}
+                        placeholder="http://10.0.2.2:3001"
+                      />
+                    </label>
+                  )}
+
+                  {err && <div className="nc-error-banner">{err}</div>}
+
+                  <button type="submit" className="nc-btn primary full nc-btn-glow" disabled={busy}>
+                    <Phone size={15} />
+                    <span>{busy ? 'Sending Verification SMS...' : 'Send 6-Digit OTP Code'}</span>
+                  </button>
+                  <div id="nc-recaptcha-container"></div>
+                </form>
+              ) : (
+                <form onSubmit={handleVerify} className="nc-auth-form">
+                  <div className="nc-otp-step-head">
+                    <div>
+                      <h2>Verify Mobile Code</h2>
+                      <p>Sent via SMS to <strong>{fullPhone}</strong></p>
+                    </div>
+                    <button
+                      type="button"
+                      className="nc-link-btn"
+                      onClick={() => {
+                        setErr('');
+                        setMobileStep('phone');
+                      }}
+                    >
+                      Change
+                    </button>
+                  </div>
+
+                  <label className="nc-field">
+                    <span>ENTER 6-DIGIT CODE</span>
+                    <div className="nc-otp-slots-wrap">
+                      <input
+                        className="nc-otp-hidden-input"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        autoFocus
+                        required
+                      />
+                      <div className="nc-otp-slots" aria-hidden="true">
+                        {[0, 1, 2, 3, 4, 5].map((idx) => {
+                          const char = otp[idx] || '';
+                          const isCurrent = otp.length === idx || (otp.length === 6 && idx === 5);
+                          return (
+                            <div key={idx} className={`nc-otp-slot ${char ? 'filled' : ''} ${isCurrent ? 'active' : ''}`}>
+                              {char || '•'}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </label>
+
+                  {devOtpPreview && (
+                    <div className="nc-dev-otp-banner">
+                      <span>🔑 Code: <strong>{devOtpPreview}</strong></span>
+                      <button
+                        type="button"
+                        className="nc-btn xs green"
+                        onClick={() => setOtp(devOtpPreview)}
+                      >
+                        Auto-fill
+                      </button>
+                    </div>
+                  )}
+
+                  {(phoneDigits.replace(/\D/g, '') === '123456789' || fullPhone.includes('123456789')) && (
+                    <div className="nc-dev-otp-banner warn">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Shield size={15} /> Admin Code: <strong>123456</strong>
+                      </span>
+                      <button
+                        type="button"
+                        className="nc-btn xs secondary"
+                        onClick={() => setOtp('123456')}
+                      >
+                        Auto-fill 123456
+                      </button>
+                    </div>
+                  )}
+
+                  {err && <div className="nc-error-banner">{err}</div>}
+
+                  <button type="submit" className="nc-btn green full" disabled={busy || otp.length < 4}>
+                    <Check size={16} />
+                    <span>{busy ? 'Verifying...' : 'Verify & Launch Nexcord'}</span>
+                  </button>
+
+                  <div className="nc-otp-resend-row">
+                    <span className="nc-muted">Didn&apos;t receive SMS?</span>
+                    <button
+                      type="button"
+                      className="nc-link-btn"
+                      disabled={cooldown > 0 || busy}
+                      onClick={() => handleSendOtp()}
+                    >
+                      {cooldown > 0 ? `Resend in ${formatCooldown(cooldown)}` : 'Resend Code'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : (
+            <div>
+              <form onSubmit={submitPasswordAuth} className="nc-auth-form">
                 <label className="nc-field">
-                  <span>COUNTRY & REGION</span>
-                  <select
-                    className="nc-phone-country-select"
-                    value={POPULAR_COUNTRY_CODES.some((c) => c.code === countryCode) ? countryCode : 'custom'}
-                    onChange={(e) => {
-                      if (e.target.value !== 'custom') {
-                        setCountryCode(e.target.value);
-                      }
-                    }}
-                  >
-                    {POPULAR_COUNTRY_CODES.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.flag} {c.name} ({c.code})
-                      </option>
-                    ))}
-                    <option value="custom">🌍 Custom Dial Code</option>
-                  </select>
+                  <span>USERNAME</span>
+                  <input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="e.g. striker.gg"
+                    required
+                  />
                 </label>
 
-                <label className="nc-field">
-                  <span>MOBILE PHONE NUMBER</span>
-                  <div className="nc-phone-input-row">
+                {mode === 'register' && (
+                  <label className="nc-field">
+                    <span>DISPLAY NAME</span>
                     <input
-                      className="nc-phone-prefix"
-                      value={countryCode}
-                      onChange={(e) => setCountryCode(e.target.value)}
-                      placeholder="+91"
-                      title="Country Dial Code"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="How your squad sees you"
                     />
-                    <input
-                      type="tel"
-                      value={phoneDigits}
-                      onChange={(e) => setPhoneDigits(e.target.value)}
-                      placeholder="e.g. 98765 43210 or 4155552671"
-                      required
-                      autoFocus
-                    />
-                  </div>
-                </label>
-
-                {phoneDigits.replace(/\D/g, '') === '123456789' && (
-                  <div style={{
-                    background: 'rgba(88, 101, 242, 0.15)',
-                    border: '1px solid #5865F2',
-                    color: '#85bbfb',
-                    borderRadius: 8,
-                    padding: '8px 12px',
-                    fontSize: 12.5,
-                    marginBottom: 10,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                  }}>
-                    <Shield size={16} color="#FEE75C" />
-                    <span><strong>Admin Master Account Recognized 🛡️:</strong> Click below to verify with OTP <code>123456</code>.</span>
-                  </div>
+                  </label>
                 )}
 
                 <label className="nc-field">
-                  <span>DISPLAY NAME (OPTIONAL)</span>
-                  <input
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="e.g. Striker, Alex, Ghost"
-                  />
+                  <span>PASSWORD</span>
+                  <div className="nc-password-field-wrap">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="nc-pw-toggle"
+                      onClick={() => setShowPassword((v) => !v)}
+                      tabIndex={-1}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </label>
 
                 {showServerUrl && (
@@ -370,279 +617,52 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister, onD
 
                 {err && <div className="nc-error-banner">{err}</div>}
 
-                <button type="submit" className="nc-btn primary full" disabled={busy}>
-                  <Phone size={15} />
-                  <span>{busy ? 'Sending OTP...' : 'Send SMS Verification Code'}</span>
+                <button type="submit" className="nc-btn primary full nc-btn-glow" disabled={busy}>
+                  {busy ? 'Connecting...' : mode === 'login' ? 'Log In to Nexcord' : 'Create Squad Account'}
                 </button>
-                <div id="nc-recaptcha-container"></div>
               </form>
-            ) : (
-              <form onSubmit={handleVerify} className="nc-auth-form">
-                <div style={{ textAlign: 'left', marginBottom: 14 }}>
-                  <h2 style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px', color: '#f2f3f5' }}>
-                    Enter SMS Verification Code
-                  </h2>
-                  <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
-                    A 6-digit code was sent via SMS message to <strong>{fullPhone}</strong>.
-                  </p>
-                </div>
 
-                <label className="nc-field">
-                  <span>6-DIGIT VERIFICATION CODE</span>
-                  <input
-                    className="nc-otp-input"
-                    type="text"
-                    maxLength={6}
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="------"
-                    autoFocus
-                    required
-                  />
-                </label>
-
-                {devOtpPreview && (
-                  <div style={{
-                    background: 'rgba(87, 242, 135, 0.12)',
-                    border: '1px solid #57F287',
-                    color: '#57F287',
-                    borderRadius: 8,
-                    padding: '8px 12px',
-                    fontSize: 12.5,
-                    marginBottom: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span>🔑 Verification Code: <strong>{devOtpPreview}</strong></span>
-                    </div>
-                    <button
-                      type="button"
-                      className="nc-btn"
-                      style={{ padding: '3px 10px', fontSize: 11, background: '#57F287', color: '#111', fontWeight: 'bold' }}
-                      onClick={() => setOtp(devOtpPreview)}
-                    >
-                      Fill Code
-                    </button>
-                  </div>
-                )}
-
-                {(phoneDigits.replace(/\D/g, '') === '123456789' || fullPhone.includes('123456789')) && (
-                  <div style={{
-                    background: 'rgba(254, 231, 92, 0.12)',
-                    border: '1px solid #FEE75C',
-                    color: '#FEE75C',
-                    borderRadius: 8,
-                    padding: '8px 12px',
-                    fontSize: 12.5,
-                    marginBottom: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Shield size={16} />
-                      <span>Admin Passcode: <strong>123456</strong></span>
-                    </div>
-                    <button
-                      type="button"
-                      className="nc-btn"
-                      style={{ padding: '3px 10px', fontSize: 11, background: '#FEE75C', color: '#111', fontWeight: 'bold' }}
-                      onClick={() => setOtp('123456')}
-                    >
-                      Auto-fill 123456
-                    </button>
-                  </div>
-                )}
-
-                {err && <div className="nc-error-banner">{err}</div>}
-
-                <button type="submit" className="nc-btn green full" disabled={busy || otp.length < 4}>
-                  <Check size={16} />
-                  <span>{busy ? 'Verifying...' : 'Verify & Enter Homepage'}</span>
-                </button>
-
-                <div className="nc-otp-actions" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                    <button
-                      type="button"
-                      className="nc-link-btn"
-                      onClick={() => {
-                        setErr('');
-                        setMobileStep('phone');
-                      }}
-                    >
-                      ← Change Mobile Number
-                    </button>
-                    <button
-                      type="button"
-                      className={`nc-btn ${cooldown > 0 ? 'secondary' : 'primary'}`}
-                      style={{ padding: '6px 14px', fontSize: 13 }}
-                      disabled={cooldown > 0 || busy}
-                      onClick={() => handleSendOtp()}
-                    >
-                      {cooldown > 0 ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <RefreshCw size={13} className="spin" />
-                          <span>Resend Code ({formatCooldown(cooldown)})</span>
-                        </span>
-                      ) : (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <RefreshCw size={13} />
-                          <span>Resend SMS Code</span>
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                  {cooldown > 0 && (
-                    <div style={{ fontSize: 11.5, color: '#949ba4', textAlign: 'right' }}>
-                      Security cooldown: next code available in {formatCooldown(cooldown)}
-                    </div>
-                  )}
-                </div>
-              </form>
-            )}
-          </div>
-        ) : (
-          <div>
-            <div className="nc-demo-box">
-              <div className="nc-demo-title">
-                <Zap size={16} />
-                <span>Instant Squad Entry (No Setup Needed)</span>
-              </div>
-              <div className="nc-demo-row">
-                <input
-                  value={demoHandle}
-                  onChange={(e) => setDemoHandle(e.target.value)}
-                  placeholder="Optional gamer tag (e.g. Striker)"
-                />
-                <button type="button" className="nc-btn green" disabled={busy} onClick={handleDemo}>
-                  <Zap size={15} />
-                  <span>Enter Arena</span>
+              <div className="nc-auth-footer">
+                <button
+                  type="button"
+                  className="nc-link-btn"
+                  onClick={() => {
+                    setErr('');
+                    setMode(mode === 'login' ? 'register' : 'login');
+                  }}
+                >
+                  {mode === 'login' ? 'Need an account? Register free' : 'Already have an account? Log In'}
                 </button>
               </div>
             </div>
+          )}
 
-            <div className="nc-divider">
-              <span>OR ACCOUNT LOGIN</span>
+          {/* Mobile APK Download Card (shown on <=900px) */}
+          <div className="nc-apk-banner mobile-apk">
+            <div className="nc-apk-left">
+              <div className="nc-apk-icon">
+                <Smartphone size={18} />
+              </div>
+              <div>
+                <div className="nc-apk-title">Nexcord for Android (v1.1)</div>
+                <div className="nc-apk-sub">Latest Material 3 UI &amp; UX build</div>
+              </div>
             </div>
-
-            <form onSubmit={submitPasswordAuth} className="nc-auth-form">
-              <label className="nc-field">
-                <span>USERNAME</span>
-                <input
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. striker.gg"
-                  required
-                />
-              </label>
-
-              {mode === 'register' && (
-                <label className="nc-field">
-                  <span>DISPLAY NAME</span>
-                  <input
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="How your squad sees you"
-                  />
-                </label>
-              )}
-
-              <label className="nc-field">
-                <span>PASSWORD</span>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Min 6 characters"
-                  required
-                />
-              </label>
-
-              {err && <div className="nc-error-banner">{err}</div>}
-
-              <button type="submit" className="nc-btn primary full" disabled={busy}>
-                {busy ? 'Connecting...' : mode === 'login' ? 'Log In' : 'Create Account'}
-              </button>
-            </form>
-
-            <div className="nc-auth-footer">
-              <button
-                type="button"
-                className="nc-link-btn"
-                onClick={() => {
-                  setErr('');
-                  setMode(mode === 'login' ? 'register' : 'login');
-                }}
-              >
-                {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Log In'}
-              </button>
-            </div>
+            <a
+              href={getApkDownloadUrl()}
+              download="Nexcord-Flutter.apk"
+              className="nc-btn primary xs nc-apk-btn"
+            >
+              <Download size={13} />
+              <span>Download APK</span>
+            </a>
           </div>
-        )}
 
-        {/* Android APK Download Card */}
-        <div style={{
-          marginTop: 18,
-          padding: '12px 14px',
-          background: 'linear-gradient(135deg, rgba(88, 101, 242, 0.15) 0%, rgba(87, 242, 135, 0.1) 100%)',
-          border: '1px solid rgba(88, 101, 242, 0.35)',
-          borderRadius: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}>
-            <div style={{
-              background: '#57F287',
-              borderRadius: 8,
-              padding: 7,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#111214'
-            }}>
-              <Smartphone size={20} />
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#f2f3f5' }}>Nexcord for Android</div>
-              <div style={{ fontSize: 11, color: '#949ba4' }}>Get the official Flutter mobile app</div>
-            </div>
+          <div className="nc-auth-server-cfg">
+            <button type="button" className="nc-link-btn muted" onClick={() => setShowServerUrl((v) => !v)}>
+              {showServerUrl ? 'Hide Server Endpoint' : 'Configure Custom Server URL'}
+            </button>
           </div>
-          <a
-            href="https://github.com/Piyush7251/nexcord/releases/download/v1.0.0/Nexcord-Flutter.apk"
-            className="nc-btn"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              padding: '7px 14px',
-              fontSize: 12,
-              fontWeight: 700,
-              background: '#5865F2',
-              color: '#ffffff',
-              textDecoration: 'none',
-              borderRadius: 6,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              whiteSpace: 'nowrap',
-              boxShadow: '0 2px 6px rgba(88, 101, 242, 0.4)'
-            }}
-          >
-            <Download size={14} />
-            <span>Download APK</span>
-          </a>
-        </div>
-
-        <div style={{ marginTop: 14, textAlign: 'center' }}>
-          <button type="button" className="nc-link-btn muted" onClick={() => setShowServerUrl((v) => !v)}>
-            {showServerUrl ? 'Hide Server URL' : 'Configure Server URL (for Mobile/LAN)'}
-          </button>
         </div>
       </div>
     </div>
@@ -802,13 +822,14 @@ export const SdkConsoleModal: React.FC<SdkConsoleModalProps> = ({
 
 // ========================================================================= Create / Join Server Modal
 interface CreateServerModalProps {
+  initialTab?: 'create' | 'join';
   onCreate: (name: string, template: 'gaming' | 'standard') => Promise<void>;
   onJoinInvite: (code: string) => Promise<void>;
   onClose: () => void;
 }
 
-export const CreateServerModal: React.FC<CreateServerModalProps> = ({ onCreate, onJoinInvite, onClose }) => {
-  const [tab, setTab] = useState<'create' | 'join'>('create');
+export const CreateServerModal: React.FC<CreateServerModalProps> = ({ initialTab = 'create', onCreate, onJoinInvite, onClose }) => {
+  const [tab, setTab] = useState<'create' | 'join'>(initialTab);
   const [name, setName] = useState('');
   const [template, setTemplate] = useState<'gaming' | 'standard'>('gaming');
   const [invite, setInvite] = useState('');
@@ -834,7 +855,10 @@ export const CreateServerModal: React.FC<CreateServerModalProps> = ({ onCreate, 
     <div className="nc-modal-backdrop" onClick={onClose}>
       <div className="nc-modal" onClick={(e) => e.stopPropagation()}>
         <div className="nc-modal-head">
-          <h3>{tab === 'create' ? 'Create Your Server' : 'Join a Server'}</h3>
+          <div className="nc-modal-title-ico">
+            <Gamepad2 size={18} style={{ color: 'var(--blurple)' }} />
+            <h3>{tab === 'create' ? 'Create Your Squad Server' : 'Join a Server'}</h3>
+          </div>
           <button type="button" className="nc-icon-btn" onClick={onClose}>
             <X size={18} />
           </button>
@@ -862,13 +886,33 @@ export const CreateServerModal: React.FC<CreateServerModalProps> = ({ onCreate, 
                   autoFocus
                 />
               </label>
-              <label className="nc-field">
-                <span>TEMPLATE</span>
-                <select value={template} onChange={(e) => setTemplate(e.target.value as 'gaming' | 'standard')}>
-                  <option value="gaming">Gaming & Live Streams (Squad Room + Live Stage + Voice)</option>
-                  <option value="standard">Standard Community (Text + Voice)</option>
-                </select>
-              </label>
+              <div className="nc-field">
+                <span>CHOOSE SERVER TEMPLATE</span>
+                <div className="nc-template-cards">
+                  <button
+                    type="button"
+                    className={`nc-template-card ${template === 'gaming' ? 'active' : ''}`}
+                    onClick={() => setTemplate('gaming')}
+                  >
+                    <Gamepad2 size={20} className="nc-tpl-ico" />
+                    <div>
+                      <strong>Gaming &amp; Live Streams</strong>
+                      <small>Squad Chat Room, Radar Map, 60 FPS Live Stage &amp; Voice</small>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`nc-template-card ${template === 'standard' ? 'active' : ''}`}
+                    onClick={() => setTemplate('standard')}
+                  >
+                    <MessageSquare size={20} className="nc-tpl-ico" />
+                    <div>
+                      <strong>Standard Community</strong>
+                      <small>Clean #general text channels &amp; voice lounges</small>
+                    </div>
+                  </button>
+                </div>
+              </div>
             </>
           ) : (
             <label className="nc-field">
@@ -876,12 +920,12 @@ export const CreateServerModal: React.FC<CreateServerModalProps> = ({ onCreate, 
               <input
                 value={invite}
                 onChange={(e) => setInvite(e.target.value)}
-                placeholder="Paste Server ID (e.g. g...) or Invite Code"
+                placeholder="Paste Server ID or Invite Code"
                 required
                 autoFocus
               />
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Enter the unique Server ID or invite code shared with you to join instantly.
+              <span className="nc-field-hint">
+                Enter the unique Server ID or invite code shared by your squad leader to join immediately.
               </span>
             </label>
           )}
@@ -1739,6 +1783,26 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             <span>ABOUT ME</span>
             <input value={about} onChange={(e) => setAbout(e.target.value)} placeholder="Bio / main agents / roles" />
           </label>
+
+          <div className="nc-apk-banner">
+            <div className="nc-apk-left">
+              <div className="nc-apk-icon">
+                <Smartphone size={18} />
+              </div>
+              <div>
+                <div className="nc-apk-title">Nexcord for Android (v1.1)</div>
+                <div className="nc-apk-sub">Download the latest updated mobile app APK</div>
+              </div>
+            </div>
+            <a
+              href={getApkDownloadUrl()}
+              download="Nexcord-Flutter.apk"
+              className="nc-btn primary xs nc-apk-btn"
+            >
+              <Download size={13} />
+              <span>Download APK</span>
+            </a>
+          </div>
 
           <div className="nc-modal-actions spread">
             <button type="button" className="nc-btn danger" onClick={onLogout}>

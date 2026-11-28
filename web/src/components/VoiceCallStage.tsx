@@ -18,7 +18,7 @@ import {
   Zap,
   X,
 } from 'lucide-react';
-import type { CallSessionState, Channel, User, VoiceParticipant } from '../types';
+import type { CallSessionState, Channel, DirectCallSession, User, VoiceParticipant } from '../types';
 import { nexconn } from '../services/nexconn';
 import { api } from '../services/api';
 import { Avatar } from './Avatar';
@@ -36,6 +36,7 @@ interface VoiceCallStageProps {
   onToggleCamera: () => void;
   onToggleScreenShare: () => void;
   onHangup: () => void;
+  onMinimize?: () => void;
   onInviteUser?: (userId: string) => void;
   onSetGameAudioVolume?: (vol: number) => void;
   onSetGameAudioMode?: (enabled: boolean) => void;
@@ -302,6 +303,7 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
   onToggleCamera,
   onToggleScreenShare,
   onHangup,
+  onMinimize,
   onInviteUser,
   onSetGameAudioVolume,
   onSetGameAudioMode,
@@ -612,6 +614,17 @@ export const VoiceCallStage: React.FC<VoiceCallStageProps> = ({
             <span className="desktop-only">+ Test Player</span>
           </button>
 
+          {onMinimize && (
+            <button
+              type="button"
+              className="nc-btn xs secondary"
+              onClick={onMinimize}
+              title="Minimize to chat"
+            >
+              <span>Back to Chat</span>
+            </button>
+          )}
+
           <button
             type="button"
             className="nc-btn xs danger"
@@ -851,6 +864,156 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
             <span>Video</span>
           </button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+interface PersonalCallBannerProps {
+  call: DirectCallSession;
+  me: User;
+  users: Record<string, User>;
+  micMuted: boolean;
+  onAcceptAudio: () => void;
+  onAcceptVideo: () => void;
+  onDeclineOrEnd: () => void;
+  onToggleMic: () => void;
+  onExpandStage: () => void;
+}
+
+export const PersonalCallBanner: React.FC<PersonalCallBannerProps> = ({
+  call,
+  me,
+  users,
+  micMuted,
+  onAcceptAudio,
+  onAcceptVideo,
+  onDeclineOrEnd,
+  onToggleMic,
+  onExpandStage,
+}) => {
+  const isCaller = call.callerId === me.id;
+  const peerId = isCaller ? call.calleeId : call.callerId;
+  const peerUser = users[peerId] || (isCaller ? call.callee : call.caller) || undefined;
+  const displayName = peerUser?.displayName || call.contactLabel || peerId;
+  const relationLabel = call.isFriend ? 'friend' : 'contact';
+  const [elapsedSec, setElapsedSec] = useState(0);
+
+  useEffect(() => {
+    if (call.status !== 'connected') {
+      setElapsedSec(0);
+      return;
+    }
+    const base = call.answeredAt || call.createdAt || Date.now();
+    const update = () => setElapsedSec(Math.max(0, Math.floor((Date.now() - base) / 1000)));
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [call.status, call.answeredAt, call.createdAt]);
+
+  const mins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+  const secs = String(elapsedSec % 60).padStart(2, '0');
+  const isIncomingRinging = !isCaller && call.status === 'ringing';
+  const isOutgoingRinging = isCaller && call.status === 'ringing';
+  const isVideo = call.mediaType === 'video';
+
+  return (
+    <div
+      className={`nc-personal-call-banner ${isIncomingRinging ? 'incoming' : call.status}`}
+      role="region"
+      aria-label="Personal Call"
+    >
+      <div
+        className="nc-pcb-left"
+        onClick={call.status === 'connected' ? onExpandStage : undefined}
+        style={{ cursor: call.status === 'connected' ? 'pointer' : 'default' }}
+      >
+        <div className={`nc-pcb-avatar-ring ${call.status === 'ringing' ? 'ringing' : 'connected'}`}>
+          <Avatar user={peerUser} name={displayName} size={42} />
+        </div>
+        <div className="nc-pcb-meta">
+          <div className="nc-pcb-title">
+            {displayName}, {relationLabel}
+          </div>
+          <div className="nc-pcb-sub">
+            {isIncomingRinging
+              ? `Incoming ${isVideo ? 'video' : 'voice'} call`
+              : isOutgoingRinging
+                ? `Calling ${displayName}...`
+                : `${isVideo ? 'Video' : 'Voice'} call • ${mins}:${secs}`}
+          </div>
+        </div>
+      </div>
+
+      <div className="nc-pcb-actions">
+        {isIncomingRinging ? (
+          <>
+            <button
+              type="button"
+              className="nc-pcb-join-btn"
+              onClick={isVideo ? onAcceptVideo : onAcceptAudio}
+              title={isVideo ? 'Join video call' : 'Join voice call'}
+            >
+              {isVideo ? <Video size={16} /> : <PhoneCall size={16} />}
+              <span>Join</span>
+            </button>
+            {isVideo && (
+              <button
+                type="button"
+                className="nc-pcb-icon-btn audio"
+                onClick={onAcceptAudio}
+                title="Join audio only"
+              >
+                <PhoneCall size={15} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="nc-pcb-icon-btn decline"
+              onClick={onDeclineOrEnd}
+              title="Decline call"
+            >
+              <X size={16} />
+            </button>
+          </>
+        ) : isOutgoingRinging ? (
+          <button
+            type="button"
+            className="nc-pcb-end-pill"
+            onClick={onDeclineOrEnd}
+            title="Cancel call"
+          >
+            <PhoneOff size={15} />
+            <span>Cancel</span>
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={`nc-pcb-icon-btn ${micMuted ? 'decline' : ''}`}
+              onClick={onToggleMic}
+              title={micMuted ? 'Unmute' : 'Mute'}
+            >
+              {micMuted ? <MicOff size={15} /> : <Mic size={15} />}
+            </button>
+            <button
+              type="button"
+              className="nc-pcb-icon-btn expand"
+              onClick={onExpandStage}
+              title="Open Call Stage"
+            >
+              <Maximize2 size={15} />
+            </button>
+            <button
+              type="button"
+              className="nc-pcb-icon-btn decline"
+              onClick={onDeclineOrEnd}
+              title="End Call"
+            >
+              <PhoneOff size={15} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -82,6 +82,25 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   return { salt, hash };
 }
 
+function sanitizePhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '').replace(/^0+/, '');
+  return digits.length >= 7 ? digits : '';
+}
+
+function phoneSuffix(raw) {
+  const digits = sanitizePhone(raw);
+  if (!digits) return '';
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function phonesMatch(a, b) {
+  const da = sanitizePhone(a);
+  const dbVal = sanitizePhone(b);
+  if (!da || !dbVal) return false;
+  if (da === dbVal) return true;
+  return phoneSuffix(da) === phoneSuffix(dbVal);
+}
+
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -185,6 +204,58 @@ function leaveVoice(uid) {
   }
 }
 
+// ---------------------------------------------------------------- direct personal calls (in-memory)
+// callId -> { callId, callerId, calleeId, mediaType: 'audio'|'video', status: 'ringing'|'connected', createdAt, answeredAt, contactLabel }
+const directCalls = new Map();
+const userDirectCall = new Map(); // userId -> callId
+const directCallTimers = new Map(); // callId -> timeoutId
+
+function serializeDirectCall(call) {
+  if (!call) return null;
+  const d = db();
+  const isFriend = d.friendships.some((f) => f.includes(call.callerId) && f.includes(call.calleeId));
+  return {
+    callId: call.callId,
+    callerId: call.callerId,
+    calleeId: call.calleeId,
+    mediaType: call.mediaType,
+    status: call.status,
+    createdAt: call.createdAt,
+    answeredAt: call.answeredAt || null,
+    isFriend,
+    contactLabel: call.contactLabel || '',
+    caller: publicUser(d.users[call.callerId]),
+    callee: publicUser(d.users[call.calleeId]),
+  };
+}
+
+function getDirectCallForUser(uid) {
+  const callId = userDirectCall.get(uid);
+  if (!callId) return null;
+  const call = directCalls.get(callId);
+  if (!call) {
+    userDirectCall.delete(uid);
+    return null;
+  }
+  return serializeDirectCall(call);
+}
+
+function endDirectCallInternal(callId, reason = 'ended', endedBy = '') {
+  const call = directCalls.get(callId);
+  if (!call) return false;
+  const timer = directCallTimers.get(callId);
+  if (timer) {
+    clearTimeout(timer);
+    directCallTimers.delete(callId);
+  }
+  directCalls.delete(callId);
+  if (userDirectCall.get(call.callerId) === callId) userDirectCall.delete(call.callerId);
+  if (userDirectCall.get(call.calleeId) === callId) userDirectCall.delete(call.calleeId);
+  notify([call.callerId, call.calleeId], 'direct-call-ended', { callId, reason, endedBy });
+  notify([call.callerId, call.calleeId], 'sync', {});
+  return true;
+}
+
 // ---------------------------------------------------------------- default community initialization (no dummy bots or fake messages)
 const SQUAD_BOTS = [];
 
@@ -278,14 +349,25 @@ function newSession(user) {
 app.get('/api/health', (_req, res) => res.json({ ok: true, nexconnConfigured: nx.isConfigured() }));
 app.get('/api/config', (_req, res) => res.json(nx.getConfig()));
 
-// APK direct download route
+// APK direct download route (always serves newest local build with no-store cache headers)
 app.get('/api/download/apk', (_req, res) => {
-  const localApk = path.join(__dirname, '..', '..', 'Nexcord-Flutter.apk');
-  if (fs.existsSync(localApk)) {
-    return res.download(localApk, 'Nexcord-Flutter.apk');
+  const candidates = [
+    path.join(__dirname, '..', '..', 'Nexcord-Flutter.apk'),
+    path.join(__dirname, '..', '..', 'flutter_app', 'build', 'app', 'outputs', 'flutter-apk', 'app-release.apk'),
+    path.join(__dirname, '..', '..', 'flutter_app', 'build', 'app', 'outputs', 'flutter-apk', 'app-debug.apk'),
+  ];
+  const foundApk = candidates.find((p) => fs.existsSync(p));
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  if (foundApk) {
+    return res.download(foundApk, 'Nexcord-Flutter.apk');
   }
-  // Redirect to official GitHub Release CDN
-  res.redirect('https://github.com/Piyush7251/nexcord/releases/download/v1.0.0/Nexcord-Flutter.apk');
+  // Redirect to latest GitHub Release CDN (or configured APK_DOWNLOAD_URL) if no local APK exists
+  res.redirect(
+    process.env.APK_DOWNLOAD_URL ||
+      'https://github.com/Piyush7251/nexcord/releases/latest/download/Nexcord-Flutter.apk',
+  );
 });
 
 // Public Analytics & Traction Telemetry Page
@@ -386,7 +468,7 @@ app.get('/stats', (_req, res) => {
         <tr><td><strong>Nexconn Chat SDK</strong></td><td><span style="color:#57f287">✓ Active</span></td><td>AppKey: <code>n19jmcy5nw3q9</code> (Area 2 Global)</td></tr>
         <tr><td><strong>Nexconn Call SDK</strong></td><td><span style="color:#57f287">✓ Active</span></td><td>Squad Voice Huddles & 1:1 Video Calls</td></tr>
         <tr><td><strong>Nexconn Chat UI</strong></td><td><span style="color:#57f287">✓ Active</span></td><td>Flutter (Android / iOS) & Web Components</td></tr>
-        <tr><td><strong>Mobile App Distribution</strong></td><td><span style="color:#57f287">✓ Ready</span></td><td>Standalone APK v1.0.0 on GitHub CDN</td></tr>
+        <tr><td><strong>Mobile App Distribution</strong></td><td><span style="color:#57f287">✓ Ready</span></td><td>Standalone APK v1.1.0 (Latest GitHub Release)</td></tr>
       </table>
       <div style="margin-top: 18px; text-align: center;">
         <a class="btn" href="/">Open Web Application</a>
@@ -887,8 +969,14 @@ app.get('/api/sync', auth, (req, res) => {
   const friends = d.friendships.filter((f) => f.includes(uid)).map((f) => (f[0] === uid ? f[1] : f[0]));
   const incoming = d.friendRequests.filter((r) => r.to === uid).map((r) => r.from);
   const outgoing = d.friendRequests.filter((r) => r.from === uid).map((r) => r.to);
+  const activeDirectCall = getDirectCallForUser(uid);
   const users = {};
-  for (const id of [uid, ...relatedUserIds(uid)]) { const u = d.users[id]; if (u) users[id] = publicUser(u); }
+  const userIds = new Set([uid, ...relatedUserIds(uid)]);
+  if (activeDirectCall) {
+    userIds.add(activeDirectCall.callerId);
+    userIds.add(activeDirectCall.calleeId);
+  }
+  for (const id of userIds) { const u = d.users[id]; if (u) users[id] = publicUser(u); }
   res.json({
     me: publicUser(req.user),
     servers,
@@ -898,6 +986,7 @@ app.get('/api/sync', auth, (req, res) => {
     dms: d.dmOpen[uid] || [],
     users,
     myVoice: userVoice[uid] || null,
+    activeDirectCall,
     squadState: d.squadState || {},
     dmPins: d.dmPins || {},
   });
@@ -1607,6 +1696,123 @@ app.post('/api/voice/state', auth, (req, res) => {
 
 app.post('/api/voice/leave', auth, (req, res) => { leaveVoice(req.user.id); res.json({ ok: true }); });
 
+// ---------------------------------------------------------------- direct personal calls (1:1 friends & contacts)
+app.post('/api/calls/start', auth, wrap(async (req, res) => {
+  const d = db();
+  const meId = req.user.id;
+  const { targetUserId, phone, mediaType = 'audio', contactName = '' } = req.body || {};
+
+  let target = targetUserId ? d.users[String(targetUserId)] : null;
+  if (!target && phone) {
+    target = Object.values(d.users).find((u) => u.phone && phonesMatch(u.phone, phone));
+  }
+  if (!target) {
+    throw new HttpError(404, phone ? 'No Nexcord user found with that phone number.' : 'User not found.');
+  }
+  if (target.id === meId) {
+    throw new HttpError(400, "You can't call yourself.");
+  }
+
+  // If caller already has a call, end it first
+  const myExistingId = userDirectCall.get(meId);
+  if (myExistingId) {
+    const existing = directCalls.get(myExistingId);
+    if (existing && (existing.callerId === target.id || existing.calleeId === target.id)) {
+      return res.json({ call: serializeDirectCall(existing) });
+    }
+    endDirectCallInternal(myExistingId, 'replaced', meId);
+  }
+
+  const targetExistingId = userDirectCall.get(target.id);
+  if (targetExistingId && directCalls.has(targetExistingId)) {
+    throw new HttpError(409, `${target.displayName} is currently on another call.`);
+  }
+
+  leaveVoice(meId);
+
+  // Ensure DM thread exists for both participants
+  const myDms = (d.dmOpen[meId] ||= []);
+  if (!myDms.includes(target.id)) myDms.unshift(target.id);
+  const theirDms = (d.dmOpen[target.id] ||= []);
+  if (!theirDms.includes(meId)) theirDms.unshift(meId);
+  save();
+
+  const callId = `dc_${rid('', 12)}`;
+  const call = {
+    callId,
+    callerId: meId,
+    calleeId: target.id,
+    mediaType: mediaType === 'video' ? 'video' : 'audio',
+    status: 'ringing',
+    createdAt: Date.now(),
+    answeredAt: null,
+    contactLabel: String(contactName || '').slice(0, 64),
+  };
+
+  directCalls.set(callId, call);
+  userDirectCall.set(meId, callId);
+  userDirectCall.set(target.id, callId);
+
+  const timer = setTimeout(() => {
+    const current = directCalls.get(callId);
+    if (current && current.status === 'ringing') {
+      endDirectCallInternal(callId, 'missed', 'timeout');
+    }
+  }, 45000);
+  directCallTimers.set(callId, timer);
+
+  const payload = serializeDirectCall(call);
+  notify([meId, target.id], 'direct-call', payload);
+  notify([meId, target.id], 'sync', {});
+  res.json({ call: payload });
+}));
+
+app.post('/api/calls/accept', auth, wrap(async (req, res) => {
+  const meId = req.user.id;
+  const { callId, mediaType } = req.body || {};
+  const cid = String(callId || userDirectCall.get(meId) || '');
+  const call = directCalls.get(cid);
+  if (!call) throw new HttpError(404, 'Call no longer active.');
+  if (call.calleeId !== meId && call.callerId !== meId) {
+    throw new HttpError(403, 'Not a participant in this call.');
+  }
+
+  const timer = directCallTimers.get(cid);
+  if (timer) {
+    clearTimeout(timer);
+    directCallTimers.delete(cid);
+  }
+
+  leaveVoice(meId);
+  call.status = 'connected';
+  call.answeredAt = call.answeredAt || Date.now();
+  if (mediaType === 'video' || mediaType === 'audio') {
+    call.mediaType = mediaType;
+  }
+
+  const payload = serializeDirectCall(call);
+  notify([call.callerId, call.calleeId], 'direct-call', payload);
+  notify([call.callerId, call.calleeId], 'sync', {});
+  res.json({ call: payload });
+}));
+
+app.post('/api/calls/end', auth, (req, res) => {
+  const meId = req.user.id;
+  const { callId, reason = 'ended' } = req.body || {};
+  const cid = String(callId || userDirectCall.get(meId) || '');
+  if (!cid) return res.json({ ok: true });
+  const call = directCalls.get(cid);
+  if (call && call.callerId !== meId && call.calleeId !== meId) {
+    throw new HttpError(403, 'Not a participant in this call.');
+  }
+  endDirectCallInternal(cid, String(reason || 'ended'), meId);
+  res.json({ ok: true });
+});
+
+app.get('/api/calls/active', auth, (req, res) => {
+  res.json({ call: getDirectCallForUser(req.user.id) });
+});
+
 // ---------------------------------------------------------------- WebRTC signaling for real Voice & Video calls
 const pendingWebRtcSignals = new Map(); // toUserId -> [{ from, fromUser, signal, callId, timestamp }]
 
@@ -1669,17 +1875,27 @@ app.post('/api/contacts/match', auth, wrap(async (req, res) => {
   const me = req.user.id;
 
   const rawNumbers = new Set();
+  const suffixNumbers = new Set();
   const contactNameMap = new Map();
 
   for (const n of phoneNumbers) {
     const s = sanitizePhone(n);
-    if (s && s.length >= 8) rawNumbers.add(s);
+    if (s) {
+      rawNumbers.add(s);
+      const suf = phoneSuffix(s);
+      if (suf) suffixNumbers.add(suf);
+    }
   }
   for (const c of contacts) {
     const s = sanitizePhone(c.phone || c.tel);
-    if (s && s.length >= 8) {
+    if (s) {
       rawNumbers.add(s);
-      if (c.name) contactNameMap.set(s, c.name);
+      const suf = phoneSuffix(s);
+      if (suf) suffixNumbers.add(suf);
+      if (c.name) {
+        contactNameMap.set(s, c.name);
+        if (suf) contactNameMap.set(suf, c.name);
+      }
     }
   }
 
@@ -1687,17 +1903,19 @@ app.post('/api/contacts/match', auth, wrap(async (req, res) => {
   for (const u of Object.values(d.users)) {
     if (u.id === me) continue;
     const uPhone = sanitizePhone(u.phone);
-    if (uPhone && rawNumbers.has(uPhone)) {
+    const uSuffix = phoneSuffix(uPhone);
+    if (uPhone && (rawNumbers.has(uPhone) || (uSuffix && suffixNumbers.has(uSuffix)))) {
       const isFriend = d.friendships.some((f) => f.includes(me) && f.includes(u.id));
       const hasPendingOutgoing = d.friendRequests.some((r) => r.from === me && r.to === u.id);
       const hasPendingIncoming = d.friendRequests.some((r) => r.from === u.id && r.to === me);
       results.push({
         user: publicUser(u),
-        contactName: contactNameMap.get(uPhone) || u.displayName,
+        contactName: contactNameMap.get(uPhone) || contactNameMap.get(uSuffix) || u.displayName,
         phone: u.phone,
         isFriend,
         hasPendingOutgoing,
         hasPendingIncoming,
+        isOnline: isConnected(u.id),
       });
     }
   }
@@ -1714,7 +1932,7 @@ app.post('/api/friends/request', auth, (req, res) => {
     ? d.users[req.body.userId]
     : Object.values(d.users).find((u) => {
         if (u.username === cleanQ) return true;
-        if (cleanPhone && u.phone && sanitizePhone(u.phone) === cleanPhone) return true;
+        if (cleanPhone && u.phone && phonesMatch(u.phone, cleanPhone)) return true;
         return false;
       });
   if (!target) throw new HttpError(404, "No user found with that phone number or username.");
@@ -1790,6 +2008,10 @@ app.get('/api/events', auth, (req, res) => {
     queued.forEach((item) => {
       res.write(`event: webrtc-signal\ndata: ${JSON.stringify(item)}\n\n`);
     });
+  }
+  const activeCall = getDirectCallForUser(uid);
+  if (activeCall) {
+    res.write(`event: direct-call\ndata: ${JSON.stringify(activeCall)}\n\n`);
   }
   clearTimeout(offlineTimers.get(uid));
   if (!wasOnline) notify(relatedUserIds(uid), 'presence', { userId: uid });
